@@ -118,5 +118,10 @@
     margin:8px auto 0; z-index:5;
   }
   #email-panel .ep-frame{height:min(38vh,340px)}
+
+  .ep-kicker{display:none}
+  .ep-head{height:auto;min-height:40px;flex-wrap:nowrap;padding-right:8px}
+  .ep-head button{padding:0 8px;letter-spacing:1px}
+  #ep-title{font-size:14px;letter-spacing:2px}
   body.email-open #pillbox, body.email-open #m-hint, body.email-open #awake-badge{display:none!important}
 }

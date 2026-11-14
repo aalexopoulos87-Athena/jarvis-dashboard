@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>J.A.R.V.I.S.</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#02080f">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="J.A.R.V.I.S. HUD dashboard">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
+<meta name="application-name" content="JARVIS">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/jarvis.css">
+<link rel="stylesheet" href="assets/phone.css">
+<script src="config.js"></script>
+<script src="data.js"></script>
+</head>
+<body>
+<div id="stage">
+  <canvas id="stars" width="1920" height="1080"></canvas>
+  <div class="haze"></div>
+
+  <!-- ===== TOP BAR ===== -->
+  <header id="m-top">
+  <div id="brand"><span class="logo">JARVIS</span><span class="ver">v2.0</span></div>
+  <nav id="nav">
+    <button class="nav-b active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" class="f"/></svg><span>HOME</span></button>
+    <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg><span>MEDIA</span></button>
+    <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg><span>FILES</span></button>
+    <button class="nav-b"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/></svg><span>NETWORK</span></button>
+    <button class="nav-b"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 9l6 6M15 9l-6 6"/></svg><span>BOTS</span></button>
+    <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/></svg><span>VOICE</span></button>
+  </nav>
+  <div id="wavebox"><canvas id="topwave" width="360" height="56"></canvas><div class="lbl">VOICE ACTIVITY</div></div>
+  <div id="clockbox"><div id="clock-main">00:00:00</div><div id="clock-date">SATURDAY, 14 NOV 2026</div></div>
+  </header>
+  <button id="power" title="Exit full screen"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
+
+  <!-- ===== LEFT ===== -->
+
+  <section id="p-stats" class="panel">
+    <div class="ph">SYSTEM MONITOR</div>
+    <ul class="stats" id="stats"></ul>
+  </section>
+
+  <div id="g-cpu" class="fgauge">
+    <svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="70" class="o"/><circle cx="80" cy="80" r="60" class="t"/>
+      <circle cx="80" cy="80" r="60" class="v" id="g-cpu-v" stroke-dasharray="377" stroke-dashoffset="207"/>
+      <text x="80" y="66" class="s">CPU LOAD</text><text x="80" y="96" class="n" id="g-cpu-t">45%</text></svg>
+  </div>
+
+  <section id="p-mic" class="panel">
+    <button id="mic-btn" title="Click to talk (F2)">
+      <svg viewBox="0 0 24 24"><rect x="8.5" y="2" width="7" height="13" rx="3.5"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5M8.5 21.5h7"/></svg>
+    </button>
+    <div class="mic-t" id="mic-state">JARVIS ONLINE</div>
+    <div class="mic-s" id="mic-hint">SAY "JARVIS" TO ACTIVATE</div>
+    <canvas id="micwave" width="220" height="16"></canvas>
+  </section>
+  <div class="dotline" style="left:62px;top:922px"></div>
+
+  <form id="voicebar" class="panel" autocomplete="off">
+    <div class="ph">VOICE INPUT</div>
+    <button type="button" id="vb-mic" title="Talk"><svg viewBox="0 0 24 24"><rect x="8.5" y="2" width="7" height="13" rx="3.5"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg></button>
+    <input id="vb-input" placeholder="Type or speak a command…">
+    <button type="submit" id="vb-send" title="Send"><svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z"/></svg></button>
+    <div class="vb-line"><i id="vb-prog"></i></div>
+  </form>
+
+  <!-- ===== CENTER ===== -->
+  <section id="p-sys" class="panel">
+    <div class="ph">SYSTEM STATUS</div>
+    <div class="kv"><span>UPTIME</span><b id="gi-up">00:00:00</b></div>
+    <div class="kv"><span>UPLINK</span><b id="gi-link">NOT CONNECTED</b></div>
+    <div class="kv ok"><i></i><span id="gi-net">ONLINE</span></div>
+  </section>
+  <section id="p-net" class="panel">
+    <div class="ph">VOICE</div>
+    <div class="kv sm"><span>PACK</span></div>
+    <div class="kv sm"><b id="gi-pack">BETTANY</b></div>
+    <div class="kv sm ok"><i></i><span id="gi-tts">TTS READY</span></div>
+  </section>
+
+  <div id="m-core">
+  <svg id="ring" viewBox="0 0 700 700">
+    <defs>
+      <radialGradient id="globe" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#03112a"/><stop offset="50%" stop-color="#05224a"/>
+        <stop offset="80%" stop-color="#0d4fa6"/><stop offset="100%" stop-color="#2b9bff"/>
+      </radialGradient>
+      <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+        <stop offset="40%" stop-color="#0a5ab8" stop-opacity=".0"/><stop offset="60%" stop-color="#1477e6" stop-opacity=".55"/>
+        <stop offset="80%" stop-color="#07306a" stop-opacity=".12"/><stop offset="100%" stop-color="#000" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="glow2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="glow3" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    <circle cx="350" cy="350" r="345" fill="url(#halo)"/>
+    <g filter="url(#glow)">
+      <circle cx="350" cy="350" r="322" class="rg faint"/>
+      <g class="spin-slow"><circle cx="350" cy="350" r="322" class="rg arc-o"/></g>
+      <circle cx="350" cy="350" r="298" class="rg faint"/>
+      <g class="spin-rev"><circle cx="350" cy="350" r="285" class="rg arc-a"/></g>
+      <g class="spin-med"><circle cx="350" cy="350" r="262" class="rg arc-b"/></g>
+      <circle cx="350" cy="350" r="250" class="rg faint"/>
+      <g class="spin-rev-slow"><circle cx="350" cy="350" r="236" class="rg arc-c"/></g>
+    </g>
+    <g class="spin-slow" filter="url(#glow3)">
+      <circle cx="350" cy="350" r="285" class="rg red" stroke-dasharray="34 1757" stroke-dashoffset="-1180"/>
+    </g>
+    <g id="dots" filter="url(#glow3)"></g>
+    <circle cx="350" cy="350" r="214" fill="url(#globe)"/>
+    <g id="globe-ticks"></g>
+    <g id="eq-ring"></g>
+    <g filter="url(#glow2)"><circle cx="350" cy="350" r="214" class="rg core-line" id="core-line"/></g>
+    <circle cx="350" cy="350" r="200" class="rg faint"/>
+    <text x="350" y="366" class="core-txt" filter="url(#glow)">JARVIS</text>
+    <rect x="322" y="410" width="56" height="5" rx="2" class="core-dash" filter="url(#glow)"/>
+    <text x="350" y="450" class="core-sub" id="core-sub">STANDING BY</text>
+  </svg>
+  <div id="flare"></div>
+  <div id="pillbox">
+    <div class="lbl" id="pill-lbl">SYSTEMS</div>
+    <div class="status-pill"><span class="dot"></span><span id="status-txt">ALL SYSTEMS OPERATIONAL</span><i class="pl"></i></div>
+  </div>
+  <div id="m-hint">TAP THE MIC OR THE RING TO TALK</div>
+  </div>
+
+  <div id="g-left" class="fgauge sm">
+    <svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="72" class="o"/><circle cx="80" cy="80" r="60" class="t"/>
+      <circle cx="80" cy="80" r="60" class="v" id="g-left-v" stroke-dasharray="377" stroke-dashoffset="0"/>
+      <text x="80" y="66" class="s">AI CORE</text><text x="80" y="96" class="n" id="g-left-t">100%</text></svg>
+  </div>
+  <div id="g-wifi" class="fgauge sm">
+    <svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="72" class="o"/><circle cx="80" cy="80" r="60" class="t"/>
+      <text x="80" y="58" class="s">NETWORK</text>
+      <g class="wifi" transform="translate(56,64)"><path d="M2 14a32 32 0 0 1 44 0"/><path d="M9 21a22 22 0 0 1 30 0"/><path d="M16 28a12 12 0 0 1 16 0"/><circle cx="24" cy="34" r="3"/></g>
+      <text x="80" y="122" class="s" id="wifi-t">ONLINE</text></svg>
+  </div>
+
+  <!-- ===== RIGHT ===== -->
+  <div id="m-cards">
+  <section id="p-weather" class="panel">
+    <div class="ph">WEATHER <em id="w-loc">LOCAL</em></div>
+    <svg id="w-art" viewBox="0 0 200 120"></svg>
+    <div class="w-temp"><span id="w-t">--</span><sup>°C</sup></div>
+    <div class="w-d" id="w-d">LOADING</div>
+    <div class="w-hl" id="w-hl">H -- / L --</div>
+    <div class="w-row">
+      <div><span>WIND</span><b id="w-wind">--</b></div>
+      <div><span>HUMIDITY</span><b id="w-hum">--</b></div>
+      <div><span>FEELS</span><b id="w-feel">--</b></div>
+    </div>
+    <div class="w-fc" id="w-fc"></div>
+  </section>
+
+  <section id="p-wait" class="panel">
+    <div class="ph">WAITING ON YOU <em id="wait-n">0</em></div>
+    <ul class="list" id="wait-list"></ul>
+    <div class="scroll"><i></i></div>
+  </section>
+
+  <section id="p-fleet" class="panel">
+    <div class="ph">FLEET TODAY <em id="fleet-n">0</em></div>
+    <ul class="list fleet" id="fleet-list"></ul>
+  </section>
+
+  <section id="p-date" class="panel">
+    <div class="ph">CALENDAR</div>
+    <div class="date-l"><div id="d-dow">SATURDAY</div><div id="d-num">14</div><div id="d-mon">NOV</div><div id="d-yr">2026</div></div>
+    <div class="mini-cal"><div class="mc-head" id="mc-head">NOV 2026</div><div class="mc-grid" id="mc-grid"></div></div>
+  </section>
+  <section id="p-tools" class="panel">
+    <div class="ph">CONTROLS</div>
+    <div class="tools">
+      <a href="https://mail.google.com" target="_blank" title="Mail"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 6l9 7 9-7"/></svg><span>MAIL</span></a>
+      <a href="#" id="dock-core" title="Talk to JARVIS"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg><span>JARVIS</span></a>
+      <a href="#" id="t-fs" title="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>SCREEN</span></a>
+      <a href="#" id="t-mute" title="Mute voice"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15 9a4 4 0 0 1 0 6"/></svg><span id="t-mute-l">SOUND</span></a>
+      <a href="#" id="dock-settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg><span>SETUP</span></a>
+      <a href="#" id="t-test" title="Test voice"><svg viewBox="0 0 24 24"><path d="M4 12h3l2-6 4 12 2-6h5"/></svg><span>TEST</span></a>
+    </div>
+  </section>
+  <section id="p-log" class="panel">
+    <div class="ph">ACTIVITY LOG</div>
+    <ul class="log" id="log"></ul>
+  </section>
+  </div>
+  <div id="m-dots"></div>
+
+  <!-- ===== BOTTOM ===== -->
+  <nav id="dock" class="panel">
+    <div class="ph">QUICK LAUNCH</div>
+    <div class="apps">
+      <a class="app" href="https://www.google.com" target="_blank"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="#db4437"/><path d="M24 24L5.8 13.5A21 21 0 0 1 42.2 13.5z" fill="#db4437"/><path d="M24 24h21A21 21 0 0 1 13.5 42.2z" fill="#f4b400"/><path d="M24 24L13.5 42.2A21 21 0 0 1 5.8 13.5z" fill="#0f9d58"/><path d="M24 24L5.8 13.5A21 21 0 0 1 42.2 13.5L45 24z" fill="#db4437"/><circle cx="24" cy="24" r="9.5" fill="#fff"/><circle cx="24" cy="24" r="7.5" fill="#4285f4"/></svg><span>BROWSER</span></a>
+      <a class="app" href="vscode://" ><svg viewBox="0 0 48 48"><path d="M34 4l10 5v30l-10 5L14 26l-7 6-4-2V18l4-2 7 6z" fill="#1f8ad2"/><path d="M34 13v22L20 24z" fill="#0b4f8a"/></svg><span>VS CODE</span></a>
+      <a class="app" href="https://open.spotify.com" target="_blank"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#1ed760"/><path d="M13 18c8-3 16-2 23 2M14.5 24.5c6.5-2.2 13-1.6 18.5 1.6M16 30.5c5-1.6 10-1.2 14 1.2" stroke="#062" stroke-width="3" fill="none" stroke-linecap="round"/></svg><span>SPOTIFY</span></a>
+      <a class="app" href="https://drive.google.com" target="_blank"><svg viewBox="0 0 48 48"><path d="M4 12h15l4 4h21v24H4z" fill="#e8b33a"/><path d="M4 19h40v21H4z" fill="#f7cf5a"/></svg><span>EXPLORER</span></a>
+      <a class="app" href="https://www.canva.com" target="_blank"><svg viewBox="0 0 48 48"><rect x="5" y="7" width="38" height="34" rx="4" fill="#0c3d6e" stroke="#4fb3ff" stroke-width="2"/><path d="M10 36l10-13 7 8 5-5 7 10z" fill="#4fb3ff"/><circle cx="33" cy="16" r="4" fill="#9ad8ff"/></svg><span>DESIGN</span></a>
+      <a class="app" href="https://calendar.google.com" target="_blank"><svg viewBox="0 0 48 48"><rect x="7" y="7" width="34" height="34" rx="5" fill="#33c9ff"/><rect x="12" y="15" width="24" height="20" rx="2" fill="#0b6fb8"/><path d="M12 21h24" stroke="#33c9ff" stroke-width="2"/></svg><span>CALENDAR</span></a>
+    </div>
+    <div class="dock-glow"></div>
+  </nav>
+
+
+
+  <div id="toast"></div>
+  <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>
+</div>
+<script src="assets/jarvis.js"></script>
+<script>
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("SW", e)));
+}
+</script>
+</body>
+</html>

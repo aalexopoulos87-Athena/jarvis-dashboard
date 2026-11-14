@@ -1,0 +1,59 @@
+// Fallback copy of data.json for file:// use. EXAMPLE DATA.
+window.JARVIS_DATA = {
+ "_note": "EXAMPLE DATA - placeholder items only. A Grok Bot routine can overwrite this file with real items.",
+ "updated": "EXAMPLE",
+ "waiting_on_you": [
+  {
+   "title": "EXAMPLE: Approve deck share for reviewers",
+   "tag": "DECK",
+   "priority": "high"
+  },
+  {
+   "title": "EXAMPLE: Give details for accountant reply",
+   "tag": "FINANCE",
+   "priority": "med"
+  },
+  {
+   "title": "EXAMPLE: OK a follow-up draft to a licensor",
+   "tag": "SALES",
+   "priority": "med"
+  },
+  {
+   "title": "EXAMPLE: Decide on a written proposal",
+   "tag": "BIZDEV",
+   "priority": "low"
+  },
+  {
+   "title": "EXAMPLE: Review buylist before sending",
+   "tag": "STORES",
+   "priority": "low"
+  }
+ ],
+ "fleet_today": [
+  {
+   "bot": "SALES & COMMS",
+   "status": "ok",
+   "summary": "EXAMPLE: weekly priorities note sent"
+  },
+  {
+   "bot": "INDUSTRY INTEL",
+   "status": "ok",
+   "summary": "EXAMPLE: morning brief delivered"
+  },
+  {
+   "bot": "CFO",
+   "status": "busy",
+   "summary": "EXAMPLE: reconciling invoices"
+  },
+  {
+   "bot": "CTO",
+   "status": "ok",
+   "summary": "EXAMPLE: preview site deployed"
+  },
+  {
+   "bot": "LOGISTICS",
+   "status": "idle",
+   "summary": "EXAMPLE: waiting on carrier"
+  }
+ ]
+};

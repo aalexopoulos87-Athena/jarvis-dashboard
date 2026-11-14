@@ -191,7 +191,13 @@ async function locate(ask){ // ask=true only from a tap (boot or SETUP)
   if(C.WEATHER&&C.WEATHER.lat!=null) return C.WEATHER;
   let allowed=false; try{ allowed=(await navigator.permissions.query({name:"geolocation"})).state==="granted"; }catch(e){}
   if(ask||allowed){ const g=await gps(); if(g){ l={...g,name:await placeName(g.lat,g.lon),auto:true}; saveLoc(l); return l; } }
-  return l&&l.lat!=null? l : null; }
+  if(l&&l.lat!=null) return l;
+  const ip=await ipLoc(); if(ip){ saveLoc(ip); return ip; }   // no GPS: approximate area from the network
+  return null; }
+async function ipLoc(){ try{ const j=await (await fetch("https://get.geojs.io/v1/ip/geo.json")).json();
+    if(!j||j.latitude==null) return null;
+    return {lat:+(+j.latitude).toFixed(3),lon:+(+j.longitude).toFixed(3),tz:j.timezone||"auto",
+      name:((j.city||j.region||"")+(j.country_code?", "+j.country_code:"")).toUpperCase()||"MY AREA",auto:true}; }catch(e){ return null; } }
 async function weather(ask){ const W=await locate(ask);
   if(!W){ $("#w-loc").textContent="NO LOCATION"; $("#w-d").textContent="TAP SETUP TO SET A CITY"; $("#w-art").innerHTML=art("cloud",true); return; }
   $("#w-loc").textContent=W.name||"LOCAL";
@@ -504,7 +510,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={say,cue,sendRequest,renderData,log,updateLink,startReplies,openSetup,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={say,cue,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

@@ -4,10 +4,10 @@ window.JARVIS_CONFIG = {
   // JARVIS voice clips (Paul Bettany AI pack, final cleaned set) for fixed cues.
   VOICE_DIRS: ["assets/voice/final_Paul_Bettany_AI"],
 
-  // Requests: paste the routine webhook URL and sender key in the SETUP panel (gear).
-  // They are stored in localStorage only — do not put them here.
-  WEBHOOK_URL: "",
-  WEBHOOK_HEADERS: {},
+  // Requests go to a private ntfy topic that a relay forwards to Chief of Staff.
+  // Phone: set via the private setup link (#req=...) or SETUP, stored in localStorage only.
+  // Desktop: REQUESTS_TOPIC below (LOCAL ONLY — make_zip.sh strips it; never commit it).
+  REQUESTS_TOPIC: "",
   SOURCE: "phone",
 
   // Replies topic is set via the private setup link (#topic=...) or the SETUP panel, in localStorage only.

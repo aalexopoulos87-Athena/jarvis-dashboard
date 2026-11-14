@@ -16,8 +16,8 @@
 <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="assets/app-v5.css">
-<link rel="stylesheet" href="assets/phone-v5.css">
+<link rel="stylesheet" href="assets/app-v6.css">
+<link rel="stylesheet" href="assets/phone-v6.css">
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -218,10 +218,9 @@
   <div id="setup" hidden>
     <form id="setup-card" class="panel" autocomplete="off">
       <div class="ph">SETUP</div>
-      <p class="su-lead">Paste the webhook URL and sender key from your Grok Bot routine panel. They are stored only on this device.</p>
-      <label class="su-l">WEBHOOK URL<input id="su-url" type="url" spellcheck="false" autocomplete="off" placeholder="https://…"></label>
-      <label class="su-l">SENDER KEY<input id="su-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="Paste sender key"></label>
-      <label class="su-l" id="su-topic-row">REPLIES TOPIC<input id="su-topic" type="password" spellcheck="false" autocomplete="off" placeholder="Optional if already set"></label>
+      <p class="su-lead">Your private setup link fills these in. They are stored only on this device.</p>
+      <label class="su-l" id="su-req-row">REQUESTS CHANNEL<input id="su-req" type="password" spellcheck="false" autocomplete="off" placeholder="Filled by your setup link"></label>
+      <label class="su-l" id="su-topic-row">REPLIES CHANNEL<input id="su-topic" type="password" spellcheck="false" autocomplete="off" placeholder="Filled by your setup link"></label>
       <label class="su-l" id="su-city-row" hidden>WEATHER CITY<input id="su-city" type="text" spellcheck="false" autocomplete="off" placeholder="Empty = use this device's location"></label>
       <div class="su-actions">
         <button type="button" id="su-cancel">CANCEL</button>
@@ -235,7 +234,7 @@
   <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>
 </div>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
-<script src="assets/app-v5.js"></script>
+<script src="assets/app-v6.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
 (function(){

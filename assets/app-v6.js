@@ -225,24 +225,23 @@ async function loadData(){ if(location.protocol!=="file:"){ try{ const r=await f
 loadData(); setInterval(loadData,C.DATA_REFRESH_SECONDS*1000);
 
 
-/* ---------- uplink (webhook in localStorage) + replies (ntfy SSE) ---------- */
-const LS_URL="jarvis_webhook_url", LS_KEY="jarvis_webhook_key", LS_TOPIC="jarvis_replies_topic", LS_SEEN="jarvis_ntfy_seen";
+/* ---------- uplink (ntfy requests topic -> relay -> Chief of Staff) + replies (ntfy SSE) ---------- */
+const LS_URL="jarvis_webhook_url", LS_KEY="jarvis_webhook_key", LS_TOPIC="jarvis_replies_topic", LS_REQ="jarvis_requests_topic", LS_SEEN="jarvis_ntfy_seen";
 const SOURCE=C.SOURCE||((/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent))?"phone":"desktop");
 function consumeTopicFragment(){
   const raw=location.hash||"";
   if(!raw||raw.length<2) return;
-  let t="";
-  try{ t=(new URLSearchParams(raw[0]==="#"?raw.slice(1):raw).get("topic")||"").trim(); }catch(e){}
-  if(!t){ const m=raw.match(/(?:^#|&)topic=([^&]+)/); if(m) try{ t=decodeURIComponent(m[1].replace(/\+/g," ")).trim(); }catch(e){} }
-  if(!t){ if(/(^#|&)setup\b/.test(raw)) try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){} return; }
-  try{ localStorage.setItem(LS_TOPIC,t); }catch(e){}
-  try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+  const p=new URLSearchParams(raw[0]==="#"?raw.slice(1):raw);
+  const pick=k=>{ let v=""; try{ v=(p.get(k)||"").trim(); }catch(e){} if(!v){ const m=raw.match(new RegExp("(?:^#|&)"+k+"=([^&]+)")); if(m) try{ v=decodeURIComponent(m[1].replace(/\+/g," ")).trim(); }catch(e){} } return v; };
+  const t=pick("topic"), q=pick("req");
+  try{ if(t) localStorage.setItem(LS_TOPIC,t); if(q) localStorage.setItem(LS_REQ,q); }catch(e){}
+  if(t||q||/(^#|&)setup\b/.test(raw)) try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
 }
 consumeTopicFragment();
-function hookCfg(){ let url="",key=""; try{ url=(localStorage.getItem(LS_URL)||"").trim(); key=(localStorage.getItem(LS_KEY)||"").trim(); }catch(e){} return {url,key}; }
+function requestsTopic(){ try{ const t=(localStorage.getItem(LS_REQ)||"").trim(); if(t) return t; }catch(e){} return (C.REQUESTS_TOPIC||"").trim(); }
 function repliesTopic(){ try{ const t=(localStorage.getItem(LS_TOPIC)||"").trim(); if(t) return t; }catch(e){} return (C.RESPONSES_TOPIC||"").trim(); }
 let sse=null, sseOpen=false, lastReply=null, statusHold=false;
-function hookReady(){ const {url,key}=hookCfg(); return !!(url&&key); }
+function hookReady(){ return !!requestsTopic(); }
 function updateLink(){
   const okHook=hookReady(), topic=!!repliesTopic(), okSse=sseOpen&&topic;
   const link=$("#gi-link"); if(link) link.textContent=(okHook&&okSse)?"CONNECTED": okHook?"UPLINK ONLY":"NOT CONNECTED";
@@ -293,24 +292,19 @@ async function sendRequest(text){
   text=(text||"").trim(); if(!text) return;
   const inp=$("#vb-input"); if(inp) inp.value="";
   log("YOU: "+text);
-  const {url,key}=hookCfg();
-  if(!url||!key){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the webhook URL and sender key"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
+  const req=requestsTopic();
+  if(!req){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the requests channel"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
   cue("ack");
   const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
-  const headers=Object.assign({"Content-Type":"application/json","Authorization":"Bearer "+key,"X-Webhook-Key":key}, C.WEBHOOK_HEADERS||{});
   try{
-    const r=await fetch(url,{method:"POST",headers,body});
+    // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.
+    const r=await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body});
     if(!r.ok) throw new Error("HTTP "+r.status);
     toast("SENT TO CHIEF OF STAFF"); log("Sent to Chief of Staff"); holdStatus("SENT TO CHIEF OF STAFF",false,5000);
   }catch(e){
-    try{
-      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body});
-      toast("SENT (UNCONFIRMED)"); log("Sent (unconfirmed) to Chief of Staff"); holdStatus("SENT (UNCONFIRMED)",false,5000);
-    }catch(e2){
-      toast("UPLINK ERROR"); log("Send failed"); holdStatus("UPLINK ERROR",true,5000); cue("error");
-    }
+    toast("UPLINK ERROR"); log("Send failed — check the connection"); holdStatus("UPLINK ERROR",true,5000); cue("error");
   }finally{
     busyReq=false; setBusy(); if(prog) prog.style.width="60%";
   }
@@ -318,9 +312,8 @@ async function sendRequest(text){
 
 function openSetup(){
   const ov=$("#setup"); if(!ov) return;
-  const {url,key}=hookCfg();
-  const u=$("#su-url"),k=$("#su-key"),tp=$("#su-topic"),city=$("#su-city"),cityRow=$("#su-city-row");
-  if(u) u.value=url; if(k) k.value=key; if(tp) tp.value=repliesTopic();
+  const rq=$("#su-req"),tp=$("#su-topic"),city=$("#su-city"),cityRow=$("#su-city-row");
+  if(rq) rq.value=requestsTopic(); if(tp) tp.value=repliesTopic();
   if(cityRow){ const show=typeof setupLocationFromField==="function"; cityRow.hidden=!show;
     if(show&&city){ try{ const l=JSON.parse(localStorage.getItem("jarvis_loc")||"null"); city.value=(l&&!l.auto&&l.name)?l.name:""; }catch(e){ city.value=""; } } }
   ov.hidden=false;
@@ -328,20 +321,19 @@ function openSetup(){
 function closeSetup(){ const ov=$("#setup"); if(ov) ov.hidden=true; }
 async function saveSetup(ev){
   if(ev) ev.preventDefault();
-  const url=($("#su-url")&&$("#su-url").value||"").trim();
-  const key=($("#su-key")&&$("#su-key").value||"").trim();
+  const req=($("#su-req")&&$("#su-req").value||"").trim();
   const topic=($("#su-topic")&&$("#su-topic").value||"").trim();
   try{
-    if(url) localStorage.setItem(LS_URL,url); else localStorage.removeItem(LS_URL);
-    if(key) localStorage.setItem(LS_KEY,key); else localStorage.removeItem(LS_KEY);
+    if(req) localStorage.setItem(LS_REQ,req); else localStorage.removeItem(LS_REQ);
     if(topic) localStorage.setItem(LS_TOPIC,topic); else localStorage.removeItem(LS_TOPIC);
+    localStorage.removeItem(LS_URL); localStorage.removeItem(LS_KEY);
   }catch(e){ toast("COULD NOT SAVE ON THIS DEVICE"); return; }
   const cityEl=$("#su-city");
   if(cityEl&&typeof setupLocationFromField==="function") await setupLocationFromField(cityEl.value);
   closeSetup();
   startReplies();
   updateLink();
-  toast(hookReady()?"UPLINK SAVED":"SETUP SAVED — WEBHOOK STILL NEEDED");
+  toast(hookReady()?"SETUP SAVED":"SETUP SAVED — REQUESTS CHANNEL STILL NEEDED");
 }
 function bindSetup(){
   const vb=$("#voicebar"); if(vb) vb.addEventListener("submit",e=>{e.preventDefault(); sendRequest($("#vb-input").value);});

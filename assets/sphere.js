@@ -1,4 +1,4 @@
-/* Age of Ultron-style JARVIS neural sphere (demo). Local three.js, no build step. */
+/* Age of Ultron-style JARVIS neural sphere v11.3 (speech-reactive core). Local three.js, no build step. */
 (function(){
 "use strict";
 const canvas = document.getElementById("sphere");
@@ -159,7 +159,7 @@ lineGeo.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
 lineGeo.setAttribute("color", new THREE.BufferAttribute(lineCol, 3));
 lineGeo.setAttribute("seed", new THREE.BufferAttribute(lineSeed, 1));
 
-const lineUniforms = { uTime: { value: 0 }, uAmp: { value: 0.2 } };
+const lineUniforms = { uTime: { value: 0 }, uAmp: { value: 0.2 }, uFlare: { value: 0 } };
 const lineMat = new THREE.ShaderMaterial({
   uniforms: lineUniforms,
   vertexShader: [
@@ -168,11 +168,14 @@ const lineMat = new THREE.ShaderMaterial({
     "varying vec3 vColor;",
     "uniform float uTime;",
     "uniform float uAmp;",
+    "uniform float uFlare;",
     "void main(){",
     "  float pulse = 0.55 + 0.45 * sin(uTime * 3.2 + seed * 6.28318);",
     "  float travel = 0.5 + 0.5 * sin(uTime * 6.0 + seed * 20.0);",
-    "  float lit = 0.88 + 0.14 * pulse + uAmp * (0.28 * travel + 0.16 * pulse);",
-    "  vColor = color * lit;",
+    "  float inner = 1.0 - clamp(length(position) / 0.62, 0.0, 1.0);",
+    "  float flick = step(0.55, fract(seed * 37.0 + floor(uTime * 14.0) * 0.618));",
+    "  float lit = 0.80 + 0.12 * pulse + uAmp * (0.55 * travel + 0.25 * pulse + 0.35 * flick) + uFlare * (0.45 + 0.9 * inner);",
+    "  vColor = min(color * lit, vec3(1.6));",
     "  float wobble = 1.0 + 0.012 * sin(uTime * 1.7 + seed * 6.28318) + 0.008 * sin(uTime * 0.85 + seed * 11.0);",
     "  vec3 pos = position * wobble;",
     "  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);",
@@ -222,7 +225,7 @@ const ptC = document.createElement("canvas"); ptC.width = ptC.height = 64;
 })();
 const ptTex = new THREE.CanvasTexture(ptC);
 
-const pointUniforms = { uTime: { value: 0 }, uAmp: { value: 0.2 }, uTex: { value: ptTex } };
+const pointUniforms = { uTime: { value: 0 }, uAmp: { value: 0.2 }, uFlare: { value: 0 }, uTex: { value: ptTex } };
 const pointMat = new THREE.ShaderMaterial({
   uniforms: pointUniforms,
   vertexShader: [
@@ -231,12 +234,15 @@ const pointMat = new THREE.ShaderMaterial({
     "varying vec3 vColor;",
     "uniform float uTime;",
     "uniform float uAmp;",
+    "uniform float uFlare;",
     "void main(){",
     "  float pulse = 0.7 + 0.3 * sin(uTime * 4.0 + seed * 6.28318);",
-    "  vColor = color * (0.90 + 0.85 * uAmp * pulse);",
+    "  float flick = step(0.5, fract(seed * 53.0 + floor(uTime * 16.0) * 0.618));",
+    "  float inner = 1.0 - clamp(length(position) / 0.62, 0.0, 1.0);",
+    "  vColor = color * (0.85 + uAmp * (0.9 * pulse + 0.6 * flick) + uFlare * (0.5 + 1.1 * inner));",
     "  float wobble = 1.0 + 0.012 * sin(uTime * 1.7 + seed * 6.28318);",
     "  vec4 mv = modelViewMatrix * vec4(position * wobble, 1.0);",
-    "  gl_PointSize = (7.0 + 2.4 * uAmp * pulse) * (5.0 / max(3.0, -mv.z));",
+    "  gl_PointSize = (7.0 + 4.0 * uAmp * pulse * (0.4 + 0.6 * flick) + 3.0 * uFlare * inner) * (5.0 / max(3.0, -mv.z));",
     "  gl_Position = projectionMatrix * mv;",
     "}"
   ].join("\n"),
@@ -456,8 +462,8 @@ function updateTicks(ring, amp, t) {
     arr[i * 6 + 3] = Math.cos(a) * outer; arr[i * 6 + 4] = 0; arr[i * 6 + 5] = Math.sin(a) * outer;
   }
   geo.attributes.position.needsUpdate = true;
-  ring.userData.tickMat.opacity = 0.40 + 0.28 * amp;
-  ring.userData.loopMat.opacity = 0.50 + 0.22 * amp;
+  ring.userData.tickMat.opacity = 0.46;   // film: thin rings hold steady while he speaks
+  ring.userData.loopMat.opacity = 0.56;
 }
 
 function speechEnvelope(t) {
@@ -468,17 +474,51 @@ function speechEnvelope(t) {
   return Math.min(1, (0.28 + 0.72 * syll * word) * pause);
 }
 
-function ampNow(t) {
-  if (window.JARVIS_AUDIO && typeof window.JARVIS_AUDIO.level === "function") {
-    return window.JARVIS_AUDIO.level(t);
+/* v11.3 voice driver. Film study (AoU lab + Ultron attack): the outer sphere and rings hold size and
+   position while JARVIS talks; the reaction is light, not motion. So: real-time loudness from the app's
+   WebAudio analyser (window.JARVIS_AUDIO.level) -> fast-attack envelope -> per-word onset flares that
+   swell the core glow and brighten/flicker fragments. Outer net and thin rings stay steady. */
+const testFlag = qs.has("amp") || qs.has("speak") || qs.has("demo");
+function rawVoice(t) {
+  const A = window.JARVIS_AUDIO;
+  if (A && typeof A.level === "function") {
+    let lv = +A.level(t);
+    if (!isFinite(lv)) lv = 0;
+    let sp;
+    if (typeof A.speaking === "function") sp = !!A.speaking() || (testFlag && lv > 0.05);
+    else sp = lv > 0.26;
+    return { lv: lv, sp: sp };
   }
-  if (qs.has("amp")) return Math.min(1, Math.max(0, parseFloat(qs.get("amp")) || 0.85));
-  if (qs.has("speak")) return speechEnvelope(t);
-  return 0.16 + 0.05 * Math.sin(t * 0.8);
+  if (qs.has("amp")) return { lv: Math.min(1, Math.max(0, parseFloat(qs.get("amp")) || 0.85)), sp: true };
+  if (qs.has("speak")) return { lv: speechEnvelope(t), sp: true };
+  return { lv: 0.16, sp: false };
+}
+const V = { env: 0, slow: 0, peak: 0.45, flare: 0, lastOn: -9, speak: 0, last: null };
+function voiceStep(t) {
+  const dt = V.last == null ? 0.016 : Math.min(0.1, Math.max(0.001, t - V.last));
+  V.last = t;
+  const r = rawVoice(t);
+  let x = 0;
+  if (r.sp) {
+    V.peak = Math.max(0.32, Math.max(r.lv, V.peak - dt * 0.12));
+    x = Math.max(0, Math.min(1, (r.lv - 0.10) / Math.max(0.2, V.peak - 0.10)));
+  }
+  const k = x > V.env ? 1 - Math.exp(-dt / 0.03) : 1 - Math.exp(-dt / 0.15);
+  V.env += (x - V.env) * k;
+  V.slow += (V.env - V.slow) * (1 - Math.exp(-dt / 0.32));
+  if (r.sp && V.env - V.slow > 0.14 && t - V.lastOn > 0.11) {
+    V.flare = Math.min(1, V.flare + 0.55 + 0.45 * V.env);
+    V.lastOn = t;
+  }
+  V.flare *= Math.exp(-dt / 0.22);
+  V.speak += ((r.sp ? 1 : 0) - V.speak) * (1 - Math.exp(-dt / 0.25));
+  const idle = 0.16 + 0.05 * Math.sin(t * 0.8);
+  const amp = Math.max(idle * (1 - V.speak), V.env);
+  const F = Math.min(1, 0.55 * V.env + 0.65 * V.flare);
+  return { amp: amp, flare: F, speak: V.speak };
 }
 
 const t0 = performance.now();
-let smooth = 0.2;
 let hidden = document.hidden;
 let needsResize = false;
 function applySize(){
@@ -500,14 +540,13 @@ function frame(now) {
   if (hidden) { window.JARVIS_SPHERE_READY = true; return; }
   if (needsResize) { needsResize = false; applySize(); }
   const t = (freezeT != null && !qs.has("demo")) ? freezeT : (now - t0) / 1000;
-  let amp = ampNow(t);
-  if (!isFinite(amp)) amp = 0.2;
-  amp = Math.max(0, Math.min(1, amp));
-  smooth += (amp - smooth) * 0.28;
-  amp = smooth;
+  const vs = voiceStep(t);
+  const amp = vs.amp, F = vs.flare;
 
   lineUniforms.uTime.value = t;
   lineUniforms.uAmp.value = amp;
+  lineUniforms.uFlare.value = F;
+  pointUniforms.uFlare.value = F;
   pointUniforms.uTime.value = t;
   pointUniforms.uAmp.value = amp;
 
@@ -523,11 +562,14 @@ function frame(now) {
 
   // Film: outer size stays constant; fragments shimmer/brighten with the voice. No whole-sphere balloon.
   bloom.scale.set(1.18, 1.18, 1);
-  bloom.material.opacity = 0.22 + 0.20 * amp;
-  coreGlow.scale.set(0.46, 0.46, 1);
-  coreHot.scale.set(0.18 * (1 + 0.04 * amp), 0.18 * (1 + 0.04 * amp), 1);
-  coreGlow.material.opacity = 0.34 + 0.40 * amp;
-  coreHot.material.opacity = 0.68 + 0.32 * amp;
+  // Core flare: the inner glow swells and whitens on every word (sized to read at phone size), outer net fixed.
+  bloom.material.opacity = 0.20 + 0.42 * F + 0.06 * vs.speak;
+  const gs = 0.46 * (1 + 1.25 * F + 0.08 * vs.speak);
+  coreGlow.scale.set(gs, gs, 1);
+  const hs = 0.18 * (1 + 1.9 * F);
+  coreHot.scale.set(hs, hs, 1);
+  coreGlow.material.opacity = Math.min(1, 0.30 + 0.70 * F + 0.05 * vs.speak);
+  coreHot.material.opacity = Math.min(1, 0.62 + 0.38 * Math.min(1, F * 1.4 + 0.15 * vs.speak));
 
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];
@@ -544,8 +586,8 @@ function frame(now) {
       arr[k * 3 + 2] = Math.sin(a) * r.userData.base;
     }
     nd.geo.attributes.position.needsUpdate = true;
-    nd.mat.opacity = 0.60 + 0.35 * amp;
-    nd.mat.size = 6 + 5 * amp;
+    nd.mat.opacity = 0.72;
+    nd.mat.size = 6.5;
   }
 
   const sparkArr = sparkGeo.attributes.position.array;
@@ -564,13 +606,10 @@ function frame(now) {
     sparkArr[i * 3 + 2] = z * wob;
   }
   sparkGeo.attributes.position.needsUpdate = true;
-  sparkMat.opacity = 0.40 + 0.30 * amp;
+  sparkMat.opacity = 0.38 + 0.45 * amp + 0.15 * F;
   sparkGroup.rotation.y = ((freezeT != null && !qs.has("demo")) ? freezeT : t) * 0.06;
 
-  if (amp - prevAmp > 0.18 && t - lastPulse > 0.28) {
-    spawnPulse(amp);
-    lastPulse = t;
-  }
+  // v11.3: no expanding pulse rings (the film sphere never emits them); reaction lives in the core.
   prevAmp = amp;
   for (let i = pulses.length - 1; i >= 0; i--) {
     const p = pulses[i];
@@ -596,6 +635,7 @@ function frame(now) {
   renderer.render(scene, camera);
   window.JARVIS_SPHERE_READY = true;
   window.JARVIS_SPHERE_AMP = amp;
+  window.JARVIS_SPHERE_FLARE = F;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

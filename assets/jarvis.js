@@ -1,9 +1,9 @@
 /* J.A.R.V.I.S. dashboard - no build step, no external deps. */
 (function(){
 "use strict";
-const C = Object.assign({VOICE_DIRS:["assets/voice/final_Paul_Bettany_AI","assets/voice/clean_Paul_Bettany_AI"],WEBHOOK_URL:"",RESPONSES_URL:"",RESPONSES_POLL_SECONDS:15,
+const C = Object.assign({VOICE_DIRS:["assets/voice/final_Paul_Bettany_AI","assets/voice/clean_Paul_Bettany_AI"],WEBHOOK_URL:"",RESPONSES_URL:"",RESPONSES_POLL_SECONDS:15,RESPONSES_TOPIC:"",SOURCE:"phone",
   DATA_URL:"data.json",DATA_REFRESH_SECONDS:60,WEATHER:null,
-  TIMEZONE:"",WAKE_WORD_ON_MOBILE:false,USE_24H:true,WAKE_WORD:"jarvis",WAKE_WORD_ENABLED:true,TTS_PITCH:.85,TTS_RATE:1,
+  TIMEZONE:"",WAKE_WORD_ON_MOBILE:false,USE_24H:true,WAKE_WORD:"jarvis",WAKE_WORD_ENABLED:true,TTS_PITCH:.85,TTS_RATE:.95,
   TTS_VOICE_PREFERENCE:["Microsoft Ryan","Google UK English Male","en-GB"],PLAY_STARTUP_GREETING:true,WEBHOOK_HEADERS:{}}, window.JARVIS_CONFIG||{});
 const $ = s => document.querySelector(s);
 try{ C.TIMEZONE = C.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE}); }catch(e){ C.TIMEZONE="UTC"; }
@@ -30,7 +30,7 @@ addEventListener("resize",fit); phoneMQ.addEventListener&&phoneMQ.addEventListen
 /* ---------- activity log ---------- */
 function log(msg){ const p=new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
   const ul=$("#log"); const li=document.createElement("li"); li.innerHTML=`<b>${p}</b><span></span>`; li.lastChild.textContent=msg; ul.prepend(li);
-  while(ul.children.length>5) ul.lastChild.remove(); }
+  while(ul.children.length>8) ul.lastChild.remove(); }
 
 /* ---------- voice cues (fixed JARVIS clips, Paul Bettany AI pack) ---------- */
 // The clips are Waze navigation prompts; only lines that make sense outside a car are used.
@@ -64,8 +64,18 @@ let unlocked=false;
 function unlockAudio(){ if(unlocked) return; unlocked=true;
   try{ const AC=window.AudioContext||window.webkitAudioContext; if(AC){ const ac=new AC(); const b=ac.createBuffer(1,1,22050), s=ac.createBufferSource(); s.buffer=b; s.connect(ac.destination); s.start(0); ac.resume&&ac.resume(); } }catch(e){}
   try{ Object.values(audioCache).forEach(a=>{ a.muted=true; const p=a.play(); if(p) p.then(()=>{a.pause(); a.currentTime=0; a.muted=false;}).catch(()=>{a.muted=false;}); else a.muted=false; }); }catch(e){}
-  try{ if("speechSynthesis" in window){ const u=new SpeechSynthesisUtterance(" "); u.volume=0; speechSynthesis.speak(u); } }catch(e){} }
+  try{ if("speechSynthesis" in window){ speechSynthesis.resume(); const u=new SpeechSynthesisUtterance(" "); u.volume=0; speechSynthesis.speak(u); } }catch(e){}
+  const vu=$("#voice-unlock"); if(vu) vu.hidden=true; }
+
+function showVoiceUnlock(){
+  const vu=$("#voice-unlock"); if(!vu) return;
+  const need=matchMedia("(pointer:coarse)").matches||/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  vu.hidden=!(need&&!unlocked);
+}
+
 ["pointerdown","touchend","keydown"].forEach(ev=>addEventListener(ev,unlockAudio,{capture:true,passive:true}));
+const vuBtn=$("#voice-unlock"); if(vuBtn) vuBtn.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();unlockAudio();});
+showVoiceUnlock();
 
 /* ---------- TTS for arbitrary replies ---------- */
 let ttsVoice=null;
@@ -90,7 +100,7 @@ function setBusy(){ const b=speaking||busyReq||(listening&&mode==="command"); do
   $("#core-sub").textContent = (listening&&mode==="command")?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING":"STANDING BY"; }
 function toast(t,ms=3200){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show"),ms); }
 function setStatus(t,warn){ $("#status-txt").textContent=t; $(".status-pill").classList.toggle("warn",!!warn); }
-$("#gi-link").textContent = C.WEBHOOK_URL? "CONNECTED":"NOT CONNECTED";
+/* uplink status set after bindSetup */
 
 /* ---------- clock / date / calendar ---------- */
 const MONTHS=["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
@@ -193,14 +203,14 @@ async function weather(ask){ const W=await locate(ask);
     $("#w-fc").innerHTML=d.time.slice(1,6).map((t,i)=>{ const k=(WCODE[d.weather_code[i+1]]||["","cloud"])[1]; const dn=new Date(t+"T12:00:00Z").toLocaleDateString("en-GB",{weekday:"short",timeZone:"UTC"}).toUpperCase();
       return `<div>${dn}<svg viewBox="0 0 64 48">${ICONS[k]}</svg><b>${Math.round(d.temperature_2m_max[i+1])}°</b></div>`; }).join("");
   }catch(e){ $("#w-d").textContent="WEATHER OFFLINE"; $("#w-art").innerHTML=art("cloud",true); } }
-async function setupLocation(){
-  const city=prompt("Weather city (e.g. London). Leave empty to use this phone's location:","");
-  if(city===null) return;
-  if(!city.trim()){ localStorage.removeItem(LOC_KEY); toast("USING DEVICE LOCATION"); return weather(true); }
-  try{ const j=await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(city.trim())}`)).json();
+async function setupLocationFromField(city){
+  city=(city||"").trim();
+  if(!city){ localStorage.removeItem(LOC_KEY); toast("USING DEVICE LOCATION"); return weather(true); }
+  try{ const j=await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(city)}`)).json();
     const r=j.results&&j.results[0]; if(!r){ toast("CITY NOT FOUND"); return; }
     saveLoc({name:(r.name+(r.country_code?", "+r.country_code:"")).toUpperCase(),lat:r.latitude,lon:r.longitude,tz:r.timezone}); toast("WEATHER: "+r.name.toUpperCase()); weather();
   }catch(e){ toast("WEATHER OFFLINE"); } }
+async function setupLocation(){ openSetup(); }
 weather(false); setInterval(()=>weather(false),15*60*1000);
 
 /* ---------- panels from data.json (served) / data.js (file://) ---------- */
@@ -214,27 +224,134 @@ async function loadData(){ if(location.protocol!=="file:"){ try{ const r=await f
   renderData(window.JARVIS_DATA); }
 loadData(); setInterval(loadData,C.DATA_REFRESH_SECONDS*1000);
 
-/* ---------- requests -> WEBHOOK_URL ---------- */
-async function sendRequest(text){ text=(text||"").trim(); if(!text) return; $("#vb-input").value=""; log("YOU: "+text);
-  if(!C.WEBHOOK_URL){ toast("REQUEST QUEUED (NOT CONNECTED YET)"); log("Not sent - no webhook set"); setStatus("NOT CONNECTED YET",true); setTimeout(()=>setStatus("ALL SYSTEMS OPERATIONAL"),5000); return; }
-  busyReq=true; setBusy(); setStatus("TRANSMITTING"); $("#vb-prog").style.width="100%";
-  try{ const r=await fetch(C.WEBHOOK_URL,{method:"POST",headers:Object.assign({"Content-Type":"application/json"},C.WEBHOOK_HEADERS||{}),body:JSON.stringify({request:text,ts:Date.now()})});
-    if(!r.ok) throw new Error("HTTP "+r.status); toast("REQUEST SENT"); log("Sent to Grok Bot"); setStatus("AWAITING REPLY"); cue("ack");
-  }catch(e){ toast("SEND FAILED: "+e.message); log("Send failed: "+e.message); setStatus("UPLINK ERROR",true); cue("error"); }
-  finally{ busyReq=false; setBusy(); $("#vb-prog").style.width="60%"; } }
-$("#voicebar").addEventListener("submit",e=>{e.preventDefault(); sendRequest($("#vb-input").value);});
 
-/* ---------- replies <- RESPONSES_URL ---------- */
-const seen=new Set(JSON.parse(localStorage.getItem("jarvis_seen")||"[]")); let firstPoll=true;
-async function poll(){ if(!C.RESPONSES_URL) return;
-  try{ const r=await fetch(C.RESPONSES_URL+(C.RESPONSES_URL.includes("?")?"&":"?")+"t="+Date.now(),{cache:"no-store"}); if(!r.ok) return;
-    const j=await r.json(); const list=Array.isArray(j)?j:(j.responses||[]); const fresh=list.filter(x=>x&&x.id!=null&&!seen.has(String(x.id)));
-    fresh.forEach(x=>seen.add(String(x.id))); localStorage.setItem("jarvis_seen",JSON.stringify([...seen].slice(-500)));
-    if(firstPoll){ firstPoll=false; if(!qs.has("speakold")) return; }
-    for(const x of fresh){ log("JARVIS: "+(x.text||"")); setStatus("NEW REPLY"); await cue("done"); await say(x.text); }
-    if(fresh.length) setTimeout(()=>setStatus("ALL SYSTEMS OPERATIONAL"),4000);
-  }catch(e){} }
-if(C.RESPONSES_URL){ poll(); setInterval(poll,Math.max(5,C.RESPONSES_POLL_SECONDS)*1000); }
+/* ---------- uplink (webhook in localStorage) + replies (ntfy SSE) ---------- */
+const LS_URL="jarvis_webhook_url", LS_KEY="jarvis_webhook_key", LS_TOPIC="jarvis_replies_topic", LS_SEEN="jarvis_ntfy_seen";
+const SOURCE=C.SOURCE||((/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent))?"phone":"desktop");
+function consumeTopicFragment(){
+  const raw=location.hash||"";
+  if(!raw||raw.length<2) return;
+  let t="";
+  try{ t=(new URLSearchParams(raw[0]==="#"?raw.slice(1):raw).get("topic")||"").trim(); }catch(e){}
+  if(!t){ const m=raw.match(/(?:^#|&)topic=([^&]+)/); if(m) try{ t=decodeURIComponent(m[1].replace(/\+/g," ")).trim(); }catch(e){} }
+  if(!t) return;
+  try{ localStorage.setItem(LS_TOPIC,t); }catch(e){}
+  try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+}
+consumeTopicFragment();
+function hookCfg(){ let url="",key=""; try{ url=(localStorage.getItem(LS_URL)||"").trim(); key=(localStorage.getItem(LS_KEY)||"").trim(); }catch(e){} return {url,key}; }
+function repliesTopic(){ try{ const t=(localStorage.getItem(LS_TOPIC)||"").trim(); if(t) return t; }catch(e){} return (C.RESPONSES_TOPIC||"").trim(); }
+let sse=null, sseOpen=false, lastReply=null, statusHold=false;
+function hookReady(){ const {url,key}=hookCfg(); return !!(url&&key); }
+function updateLink(){
+  const okHook=hookReady(), topic=!!repliesTopic(), okSse=sseOpen&&topic;
+  const link=$("#gi-link"); if(link) link.textContent=(okHook&&okSse)?"CONNECTED": okHook?"UPLINK ONLY":"NOT CONNECTED";
+  if(statusHold) return;
+  if(okHook&&okSse) setStatus("CONNECTED",false);
+  else if(!okHook) setStatus("TAP SETUP TO CONNECT",true);
+  else setStatus("REPLIES OFFLINE",true);
+}
+function holdStatus(t,warn,ms){ statusHold=true; setStatus(t,warn); clearTimeout(holdStatus._t); holdStatus._t=setTimeout(()=>{statusHold=false;updateLink();},ms||4000); }
+function ntfyPayload(ev){
+  if(!ev||!ev.data) return null;
+  let data=ev.data;
+  try{ data=JSON.parse(ev.data); }catch(e){ const s=String(ev.data).trim(); return s?{id:s,text:s}:null; }
+  if(!data||data.event==="open"||data.event==="keepalive") return null;
+  const text=String(data.message||data.body||data.text||"").trim();
+  if(!text) return null;
+  return {id:String(data.id||data.time||text), text};
+}
+const ntfySeen=new Set((()=>{ try{ return JSON.parse(localStorage.getItem(LS_SEEN)||"[]"); }catch(e){ return []; } })());
+function rememberNtfy(id){ ntfySeen.add(id); try{ localStorage.setItem(LS_SEEN,JSON.stringify([...ntfySeen].slice(-400))); }catch(e){} }
+async function onReply(text,id){
+  lastReply={text,id,ts:Date.now()};
+  log("JARVIS: "+text);
+  holdStatus("NEW REPLY",false,8000);
+  await cue("done");
+  await say(text);
+}
+function stopReplies(){ if(sse){ try{ sse.close(); }catch(e){} sse=null; } sseOpen=false; }
+function startReplies(){
+  stopReplies();
+  const topic=repliesTopic();
+  if(!topic||typeof EventSource==="undefined"){ updateLink(); return; }
+  try{
+    sse=new EventSource("https://ntfy.sh/"+encodeURIComponent(topic)+"/sse");
+    sse.onopen=()=>{ sseOpen=true; updateLink(); };
+    sse.onerror=()=>{ sseOpen=false; updateLink(); };
+    sse.onmessage=ev=>{
+      const msg=ntfyPayload(ev); if(!msg) return;
+      if(ntfySeen.has(msg.id)) return;
+      rememberNtfy(msg.id);
+      onReply(msg.text,msg.id);
+    };
+  }catch(e){ sseOpen=false; }
+  updateLink();
+}
+
+async function sendRequest(text){
+  text=(text||"").trim(); if(!text) return;
+  const inp=$("#vb-input"); if(inp) inp.value="";
+  log("YOU: "+text);
+  const {url,key}=hookCfg();
+  if(!url||!key){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the webhook URL and sender key"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
+  busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
+  const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
+  cue("ack");
+  const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
+  const headers=Object.assign({"Content-Type":"application/json","Authorization":"Bearer "+key,"X-Webhook-Key":key}, C.WEBHOOK_HEADERS||{});
+  try{
+    const r=await fetch(url,{method:"POST",headers,body});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    toast("SENT TO CHIEF OF STAFF"); log("Sent to Chief of Staff"); holdStatus("SENT TO CHIEF OF STAFF",false,5000);
+  }catch(e){
+    try{
+      await fetch(url,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body});
+      toast("SENT (UNCONFIRMED)"); log("Sent (unconfirmed) to Chief of Staff"); holdStatus("SENT (UNCONFIRMED)",false,5000);
+    }catch(e2){
+      toast("UPLINK ERROR"); log("Send failed"); holdStatus("UPLINK ERROR",true,5000); cue("error");
+    }
+  }finally{
+    busyReq=false; setBusy(); if(prog) prog.style.width="60%";
+  }
+}
+
+function openSetup(){
+  const ov=$("#setup"); if(!ov) return;
+  const {url,key}=hookCfg();
+  const u=$("#su-url"),k=$("#su-key"),tp=$("#su-topic"),city=$("#su-city"),cityRow=$("#su-city-row");
+  if(u) u.value=url; if(k) k.value=key; if(tp) tp.value=repliesTopic();
+  if(cityRow){ const show=typeof setupLocationFromField==="function"; cityRow.hidden=!show;
+    if(show&&city){ try{ const l=JSON.parse(localStorage.getItem("jarvis_loc")||"null"); city.value=(l&&!l.auto&&l.name)?l.name:""; }catch(e){ city.value=""; } } }
+  ov.hidden=false;
+}
+function closeSetup(){ const ov=$("#setup"); if(ov) ov.hidden=true; }
+async function saveSetup(ev){
+  if(ev) ev.preventDefault();
+  const url=($("#su-url")&&$("#su-url").value||"").trim();
+  const key=($("#su-key")&&$("#su-key").value||"").trim();
+  const topic=($("#su-topic")&&$("#su-topic").value||"").trim();
+  try{
+    if(url) localStorage.setItem(LS_URL,url); else localStorage.removeItem(LS_URL);
+    if(key) localStorage.setItem(LS_KEY,key); else localStorage.removeItem(LS_KEY);
+    if(topic) localStorage.setItem(LS_TOPIC,topic); else localStorage.removeItem(LS_TOPIC);
+  }catch(e){ toast("COULD NOT SAVE ON THIS DEVICE"); return; }
+  const cityEl=$("#su-city");
+  if(cityEl&&typeof setupLocationFromField==="function") await setupLocationFromField(cityEl.value);
+  closeSetup();
+  startReplies();
+  updateLink();
+  toast(hookReady()?"UPLINK SAVED":"SETUP SAVED — WEBHOOK STILL NEEDED");
+}
+function bindSetup(){
+  const vb=$("#voicebar"); if(vb) vb.addEventListener("submit",e=>{e.preventDefault(); sendRequest($("#vb-input").value);});
+  const ds=$("#dock-settings"); if(ds) ds.addEventListener("click",e=>{e.preventDefault(); openSetup();});
+  const gear=$("#m-gear"); if(gear) gear.addEventListener("click",e=>{e.preventDefault(); openSetup();});
+  const cancel=$("#su-cancel"); if(cancel) cancel.addEventListener("click",e=>{e.preventDefault(); closeSetup();});
+  const form=$("#setup-card"); if(form) form.addEventListener("submit",saveSetup);
+  const ov=$("#setup"); if(ov) ov.addEventListener("click",e=>{ if(e.target===ov) closeSetup(); });
+  startReplies();
+}
 
 /* ---------- speech recognition: mic tile + wake word ---------- */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null, wakeArmed=false, micBlocked=false;
@@ -264,7 +381,6 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
 function talk(){ try{ speechSynthesis.cancel(); }catch(e){} startRec("command"); }
 $("#mic-btn").addEventListener("click",talk); $("#vb-mic").addEventListener("click",talk);
 $("#dock-core").addEventListener("click",e=>{e.preventDefault(); talk();});
-$("#dock-settings").addEventListener("click",e=>{e.preventDefault(); setupLocation();});
 $("#ring").addEventListener("click",()=>{ if(document.body.classList.contains("phone")) talk(); });
 $("#t-fs").addEventListener("click",e=>{e.preventDefault(); document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});});
 $("#power").addEventListener("click",()=>{ if(document.fullscreenElement) document.exitFullscreen(); });
@@ -272,6 +388,8 @@ $("#t-mute").addEventListener("click",e=>{e.preventDefault(); muted=!muted; $("#
 $("#t-test").addEventListener("click",async e=>{e.preventDefault(); await cue("online"); await say("Voice check complete. This is how I will read your replies, sir.");});
 addEventListener("keydown",e=>{ if(e.key==="F2") talk(); });
 micUI();
+
+bindSetup();
 
 /* ---------- boot (one click needed for sound + full screen) ---------- */
 async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) return; b.classList.add("hide");
@@ -288,5 +406,5 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={say,cue,sendRequest,renderData,log};
+window.JARVIS={say,cue,sendRequest,renderData,log,updateLink,startReplies,openSetup,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;}};
 })();

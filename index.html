@@ -38,7 +38,10 @@
     <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/></svg><span>VOICE</span></button>
   </nav>
   <div id="wavebox"><canvas id="topwave" width="360" height="56"></canvas><div class="lbl">VOICE ACTIVITY</div></div>
+  <div id="m-end">
   <div id="clockbox"><div id="clock-main">00:00:00</div><div id="clock-date">SATURDAY, 14 NOV 2026</div></div>
+  <button type="button" id="m-gear" title="Setup" aria-label="Setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></button>
+  </div>
   </header>
   <button id="power" title="Exit full screen"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
 
@@ -210,6 +213,23 @@
   </nav>
 
 
+
+
+  <div id="setup" hidden>
+    <form id="setup-card" class="panel" autocomplete="off">
+      <div class="ph">SETUP</div>
+      <p class="su-lead">Paste the webhook URL and sender key from your Grok Bot routine panel. They are stored only on this device.</p>
+      <label class="su-l">WEBHOOK URL<input id="su-url" type="url" spellcheck="false" autocomplete="off" placeholder="https://…"></label>
+      <label class="su-l">SENDER KEY<input id="su-key" type="password" spellcheck="false" autocomplete="new-password" placeholder="Paste sender key"></label>
+      <label class="su-l" id="su-topic-row">REPLIES TOPIC<input id="su-topic" type="password" spellcheck="false" autocomplete="off" placeholder="Optional if already set"></label>
+      <label class="su-l" id="su-city-row" hidden>WEATHER CITY<input id="su-city" type="text" spellcheck="false" autocomplete="off" placeholder="Empty = use this device's location"></label>
+      <div class="su-actions">
+        <button type="button" id="su-cancel">CANCEL</button>
+        <button type="submit" id="su-save">SAVE</button>
+      </div>
+    </form>
+  </div>
+  <button type="button" id="voice-unlock" hidden>TAP TO ENABLE VOICE</button>
 
   <div id="toast"></div>
   <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>

@@ -206,3 +206,22 @@ body.busy .spin-med{animation-duration:6s}body.busy .spin-rev{animation-duration
 .boot-bar i{display:block;height:100%;width:30%;background:var(--cy);box-shadow:0 0 10px var(--cy);animation:load 1.6s ease-in-out infinite}
 @keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
 body.noboot #boot{display:none}
+
+/* ---- setup overlay + voice unlock ---- */
+#setup{position:absolute;inset:0;background:rgba(1,5,12,.86);display:grid;place-items:center;z-index:20}
+#setup[hidden]{display:none!important}
+#setup-card{position:relative;left:auto;top:auto;width:540px;max-width:92%;padding:8px 24px 22px}
+.su-lead{font-size:13px;font-weight:600;letter-spacing:.4px;color:var(--mut);padding:6px 2px 10px;line-height:1.45}
+.su-l{display:block;font-size:11px;font-weight:700;letter-spacing:2px;color:var(--cy);margin:10px 0 0}
+.su-l input{display:block;width:100%;margin-top:6px;height:40px;padding:0 12px;border:1px solid var(--bd);border-radius:8px;background:rgba(0,10,22,.75);color:var(--txt);letter-spacing:.3px;font-size:15px}
+.su-l input:focus{box-shadow:var(--glow)}
+.su-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:18px}
+.su-actions button{min-width:108px;height:38px;border:1px solid var(--bd);border-radius:8px;font-weight:700;letter-spacing:2px;cursor:pointer;color:var(--cy)}
+#su-save{background:rgba(53,200,255,.16)}
+#su-cancel:hover,#su-save:hover{background:rgba(53,200,255,.28)}
+#voice-unlock{position:absolute;left:50%;top:820px;transform:translateX(-50%);z-index:8;cursor:pointer;
+  font-size:13px;font-weight:700;letter-spacing:3px;color:#00121f;background:var(--cy);padding:10px 22px;border-radius:18px;box-shadow:var(--glow);animation:blink 1.8s infinite}
+#voice-unlock[hidden]{display:none!important}
+#m-gear{display:none}
+.log li{height:auto;min-height:28px;align-items:flex-start;padding:5px 0;white-space:normal}
+.log li span{white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;line-height:1.25}

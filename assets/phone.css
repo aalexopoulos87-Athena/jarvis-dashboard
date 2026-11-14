@@ -86,3 +86,14 @@ body{position:fixed;inset:0}
   .boot-bar{width:240px}
   @keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
 }
+
+#setup{position:fixed}
+#setup-card{width:min(92vw,540px);max-height:min(90vh,720px);overflow:auto}
+#voice-unlock{position:fixed;top:auto;bottom:calc(112px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%)}
+#m-end{display:contents}
+@media (max-width: 899px) and (orientation: portrait){
+  #m-end{display:flex;align-items:center;gap:10px}
+  #m-gear{display:grid;place-items:center;width:36px;height:36px;flex:none;border:1px solid var(--bd);border-radius:50%;
+    background:rgba(2,12,26,.75);box-shadow:var(--glow)}
+  #m-gear svg{width:20px;height:20px;fill:none;stroke:var(--cy);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+}

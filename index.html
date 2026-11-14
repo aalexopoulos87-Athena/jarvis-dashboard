@@ -237,7 +237,9 @@
 <script src="assets/jarvis.js"></script>
 <script>
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("SW", e)));
+  let hadCtl = !!navigator.serviceWorker.controller, reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadCtl && !reloaded) { reloaded = true; location.reload(); } });
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js", {updateViaCache: "none"}).then(r => r.update()).catch(e => console.warn("SW", e)));
 }
 </script>
 </body>

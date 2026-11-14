@@ -1,8 +1,8 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v4";
+const VERSION = "jarvis-v5";
 const SHELL = [
   "./", "index.html", "config.js", "data.js", "data.json", "manifest.webmanifest",
-  "assets/jarvis.css", "assets/jarvis.js", "assets/phone.css",
+  "assets/app-v5.css", "assets/app-v5.js", "assets/phone-v5.css",
   "assets/fonts/Orbitron.ttf", "assets/fonts/Rajdhani-Regular.ttf", "assets/fonts/Rajdhani-Medium.ttf",
   "assets/fonts/Rajdhani-SemiBold.ttf", "assets/fonts/Rajdhani-Bold.ttf",
   "assets/icons/icon-192.png", "assets/icons/icon-512.png", "assets/icons/icon-maskable-192.png",
@@ -23,7 +23,7 @@ self.addEventListener("fetch", e => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;            // weather etc. go straight to network
   const path = url.pathname;
-  const fresh = req.mode === "navigate" || /\/(data\.json|data\.js|config\.js)$/.test(path);
+  const fresh = req.mode === "navigate" || /\.(html|js|css|json)$/.test(path) || path.endsWith("/");
   if (fresh) {                                             // network first, cache fallback
     e.respondWith(fetch(req).then(r => {
       if (r.ok) { const cp = r.clone(); caches.open(VERSION).then(c => c.put(req.mode === "navigate" ? "index.html" : stripQ(req), cp)); }

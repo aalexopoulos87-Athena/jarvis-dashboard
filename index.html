@@ -16,8 +16,8 @@
 <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="assets/jarvis.css">
-<link rel="stylesheet" href="assets/phone.css">
+<link rel="stylesheet" href="assets/app-v5.css">
+<link rel="stylesheet" href="assets/phone-v5.css">
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -234,7 +234,8 @@
   <div id="toast"></div>
   <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>
 </div>
-<script src="assets/jarvis.js"></script>
+<script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
+<script src="assets/app-v5.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
 (function(){

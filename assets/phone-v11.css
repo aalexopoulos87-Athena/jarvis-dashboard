@@ -1,0 +1,113 @@
+/* ===== JARVIS phone layout (portrait, < 900px wide). Landscape keeps the scaled desktop HUD. ===== */
+#m-hint{display:none}
+html,body{overflow:hidden;overscroll-behavior:none}
+body{position:fixed;inset:0}
+#m-dots{display:none}
+@media (max-width: 899px) and (orientation: portrait){
+  html,body{background:#02080f;overscroll-behavior:none}
+  #stage{position:fixed;inset:0;width:100%;height:100%;transform:none!important;overflow-x:hidden;overflow-y:auto;
+    display:flex;flex-direction:column;align-items:stretch;-webkit-overflow-scrolling:touch;
+    padding-bottom:calc(104px + env(safe-area-inset-bottom));
+    background:radial-gradient(ellipse 70% 38% at 50% 30%,#0a2a55 0%,#061633 45%,transparent 80%),
+               radial-gradient(ellipse 120% 90% at 50% 40%,#04101f 0%,#020a15 60%,#01050b 100%)}
+  #stars{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+  .haze{position:fixed;box-shadow:inset 0 0 120px 20px rgba(0,0,0,.8)}
+
+  /* hide desktop-only bits */
+  #nav,#wavebox,#power,#p-stats,#g-cpu,#p-mic,.dotline,#p-sys,#p-net,#g-left,#g-wifi,#flare,#dock,#voicebar .ph{display:none!important}
+
+  /* top bar */
+  #m-top{position:sticky;top:0;z-index:4;display:flex;justify-content:space-between;align-items:center;flex:none;
+    padding:calc(env(safe-area-inset-top) + 10px) 16px 8px;
+    background:linear-gradient(180deg,rgba(2,8,15,.95) 60%,rgba(2,8,15,0));}
+  #brand{position:static;gap:6px}
+  .logo{font-size:34px;letter-spacing:1.5px}
+  .ver{font-size:11px}
+  #clockbox{position:static;text-align:right}
+  #clock-main{font-size:24px;letter-spacing:1px}
+  #clock-date{font-size:10px;letter-spacing:1.5px;margin-top:4px}
+
+  /* ring + status */
+  #m-core{position:relative;flex:none;display:flex;flex-direction:column;align-items:center;padding:4px 0 6px}
+  #core-stage{position:relative;left:auto;top:auto;width:min(88vw,44vh,440px);height:min(88vw,44vh,440px);cursor:pointer;-webkit-tap-highlight-color:transparent;z-index:2}
+  #sphere-glow{inset:12%}
+  #sphere,#ring{position:absolute;left:0;top:0;width:100%;height:100%}
+  #ring{cursor:pointer;-webkit-tap-highlight-color:transparent}
+  #pillbox{position:relative;left:auto;top:auto;width:min(84vw,340px);margin-top:4px}
+  #pillbox .lbl{margin-bottom:6px;font-size:10px}
+  .status-pill{height:46px;font-size:12px;letter-spacing:2px;padding-bottom:6px}
+  .status-pill .pl{bottom:9px}
+  #m-hint{display:block;margin-top:8px;font-size:11px;font-weight:700;letter-spacing:2.5px;color:var(--mut);text-align:center}
+  body.busy #m-hint{color:var(--cy);text-shadow:var(--glow)}
+
+  /* swipeable cards */
+  #m-cards{flex:none;display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;
+    padding:14px 20px 8px;scroll-padding:0 20px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #m-cards::-webkit-scrollbar{display:none}
+  #m-cards>.panel{position:relative;left:auto!important;top:auto!important;flex:0 0 calc(100vw - 40px);max-width:460px;min-width:0;
+    width:auto!important;height:300px!important;scroll-snap-align:center}
+  #m-dots{display:flex;justify-content:center;gap:8px;padding:2px 0 10px;flex:none}
+  #m-dots i{width:7px;height:7px;border-radius:50%;background:rgba(53,200,255,.25);cursor:pointer}
+  #m-dots i.on{background:var(--cy);box-shadow:var(--glow);width:20px;border-radius:4px}
+
+  /* card internals */
+  #w-art{width:170px;height:102px;right:10px}
+  .w-temp{font-size:50px}
+  .w-fc div{width:auto;flex:1}
+  .list li{height:auto;min-height:40px;padding:3px 0;font-size:15px;line-height:1.15}
+  .list li .tx{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .list.fleet li{height:44px;font-size:14px;align-items:center}
+  .list.fleet .bn{width:104px}
+  #p-date .date-l{left:10px;top:44px;width:120px}
+  #p-date #d-num{font-size:70px}
+  #p-date .mini-cal{left:136px;right:12px;top:36px}
+  .mc-grid .d{height:30px;line-height:30px}
+  .tools{gap:12px 0;padding:14px 10px}
+  .tools a{padding:14px 0}
+  .tools svg{width:34px;height:34px}
+  .tools span{font-size:12px}
+  .log li{height:40px;font-size:14px}
+
+  /* input bar pinned at the bottom, big thumb mic on the right */
+  #voicebar{position:fixed;left:10px;right:10px;top:auto;bottom:calc(10px + env(safe-area-inset-bottom));width:auto;height:84px;z-index:6;
+    display:flex;align-items:center;gap:10px;padding:0 10px 0 14px;border-radius:42px}
+  #vb-input{position:static;flex:1;min-width:0;height:48px;font-size:16px;border-radius:24px;padding:0 16px}
+  #vb-send{position:static;flex:none;width:48px;height:48px;border-radius:50%}
+  #vb-mic{position:static;flex:none;order:3;width:66px;height:66px;border-radius:50%;display:grid;place-items:center;
+    border:2px solid var(--cy);background:radial-gradient(circle,#0d4fa6 0%,#05224a 70%);
+    box-shadow:0 0 14px rgba(53,200,255,.8),0 0 34px rgba(26,143,232,.45),inset 0 0 14px rgba(120,220,255,.35);-webkit-tap-highlight-color:transparent}
+  #vb-mic svg{width:30px;height:36px;stroke:#e6f8ff;stroke-width:1.8}
+  #vb-mic:active{transform:scale(.94)}
+  body.busy #vb-mic{animation:micpulse 1.1s ease-in-out infinite}
+  @keyframes micpulse{50%{box-shadow:0 0 26px rgba(120,230,255,1),0 0 60px rgba(53,200,255,.7),inset 0 0 20px rgba(160,235,255,.5)}}
+  .vb-line{left:30px;right:30px;top:auto;bottom:6px;height:3px}
+
+  #toast{position:fixed;top:auto;bottom:calc(106px + env(safe-area-inset-bottom));font-size:12px;max-width:92vw;white-space:normal;text-align:center}
+  #boot{position:fixed}
+  .boot-t{font-size:56px;letter-spacing:12px}
+  .boot-s{font-size:13px;letter-spacing:4px}
+  .boot-bar{width:240px}
+  @keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
+}
+
+#setup{position:fixed}
+#setup-card{width:min(92vw,540px);max-height:min(90vh,720px);overflow:auto}
+#voice-unlock{position:fixed;top:auto;bottom:calc(112px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%)}
+#m-end{display:contents}
+@media (max-width: 899px) and (orientation: portrait){
+  #m-end{display:flex;align-items:center;gap:10px}
+  #m-gear{display:grid;place-items:center;width:36px;height:36px;flex:none;border:1px solid var(--bd);border-radius:50%;
+    background:rgba(2,12,26,.75);box-shadow:var(--glow)}
+  #m-gear svg{width:20px;height:20px;fill:none;stroke:var(--cy);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+}
+
+#m-gear{position:relative;z-index:30;touch-action:manipulation;cursor:pointer}
+#m-gear svg{pointer-events:none}
+.status-pill{cursor:pointer;touch-action:manipulation}
+
+@media (max-width: 899px) and (orientation: portrait){
+  #awake-badge{display:inline-block;margin-top:6px;font-size:10px;font-weight:700;letter-spacing:3px;color:var(--mut);
+    border:1px solid var(--bd);border-radius:10px;padding:3px 10px}
+  #awake-badge.on{color:var(--cy);box-shadow:var(--glow);border-color:var(--cy)}
+  #awake-badge[hidden]{display:none!important}
+}

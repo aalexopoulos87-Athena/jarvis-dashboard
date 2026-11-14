@@ -16,8 +16,8 @@
 <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="assets/app-v10.css">
-<link rel="stylesheet" href="assets/phone-v10.css">
+<link rel="stylesheet" href="assets/app-v11.css">
+<link rel="stylesheet" href="assets/phone-v11.css">
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -92,6 +92,9 @@
   </section>
 
   <div id="m-core">
+  <div id="core-stage">
+  <div id="sphere-glow"></div>
+  <canvas id="sphere" width="700" height="700"></canvas>
   <svg id="ring" viewBox="0 0 700 700">
     <defs>
       <radialGradient id="globe" cx="50%" cy="50%" r="50%">
@@ -120,21 +123,15 @@
       <circle cx="350" cy="350" r="285" class="rg red" stroke-dasharray="34 1757" stroke-dashoffset="-1180"/>
     </g>
     <g id="dots" filter="url(#glow3)"></g>
-    <circle cx="350" cy="350" r="214" fill="url(#globe)"/>
-    <g id="globe-ticks"></g>
-    <g id="eq-ring"></g>
-    <g filter="url(#glow2)"><circle cx="350" cy="350" r="214" class="rg core-line" id="core-line"/></g>
-    <circle cx="350" cy="350" r="200" class="rg faint"/>
-    <text x="350" y="366" class="core-txt" filter="url(#glow)">JARVIS</text>
-    <rect x="322" y="410" width="56" height="5" rx="2" class="core-dash" filter="url(#glow)"/>
-    <text x="350" y="450" class="core-sub" id="core-sub">STANDING BY</text>
+    <text x="350" y="536" class="core-sub" id="core-sub">STANDING BY</text>
   </svg>
+  </div>
   <div id="flare"></div>
   <div id="pillbox">
     <div class="lbl" id="pill-lbl">SYSTEMS</div>
     <div class="status-pill"><span class="dot"></span><span id="status-txt">ALL SYSTEMS OPERATIONAL</span><i class="pl"></i></div>
   </div>
-  <div id="m-hint">TAP THE MIC OR THE RING TO TALK</div>
+  <div id="m-hint">TAP THE MIC OR THE SPHERE TO TALK</div>
   <div id="awake-badge" hidden>STANDBY</div>
   </div>
 
@@ -237,7 +234,9 @@
   <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>
 </div>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
-<script src="assets/app-v10.js"></script>
+<script src="assets/vendor/three.min.js"></script>
+<script src="assets/app-v11.js"></script>
+<script src="assets/sphere.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
 (function(){

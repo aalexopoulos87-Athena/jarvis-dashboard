@@ -1,0 +1,122 @@
+/* v12 holographic Gmail panel — pale yellow-gold film palette, sphere stays visible */
+:root{
+  --gold:#f3d27a; --gold-hot:#ffefb8; --gold-core:#fff7d8; --gold-mid:#e0bc6a; --gold-dim:#c9a456;
+  --gold-glow:0 0 8px rgba(255,239,184,.45),0 0 22px rgba(243,210,122,.22);
+}
+
+#inbox-btn{
+  position:absolute; left:840px; top:808px; z-index:8;
+  width:350px; height:32px;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  font-family:Rajdhani; font-weight:700; font-size:12px; letter-spacing:3px;
+  color:var(--gold-hot);
+  border:1px solid rgba(243,210,122,.55); border-radius:10px;
+  background:linear-gradient(180deg,rgba(40,30,10,.55),rgba(10,14,20,.7));
+  box-shadow:var(--gold-glow); cursor:pointer; touch-action:manipulation;
+}
+#inbox-btn svg{width:16px;height:16px;fill:none;stroke:var(--gold);stroke-width:1.8;stroke-linejoin:round}
+#inbox-btn:hover,#inbox-btn:active{border-color:var(--gold-hot);color:var(--gold-core)}
+
+#email-panel{
+  position:absolute; left:500px; top:818px; width:920px; height:250px; z-index:12;
+  pointer-events:none;
+}
+#email-panel:not([hidden]){pointer-events:auto}
+#email-panel[hidden]{display:none!important}
+#email-panel .ep-frame{
+  position:relative; height:100%; overflow:hidden;
+  border:1.5px solid rgba(243,210,122,.6); border-radius:14px;
+  background:
+    linear-gradient(180deg,rgba(36,28,8,.55) 0%,rgba(8,14,22,.78) 40%,rgba(4,10,18,.86) 100%);
+  box-shadow:0 0 16px rgba(255,239,184,.2),0 0 40px rgba(243,210,122,.12),inset 0 0 28px rgba(243,210,122,.08);
+  color:var(--gold-core);
+}
+#email-panel .ep-frame::before{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:3;
+  background:repeating-linear-gradient(180deg,transparent 0 2px,rgba(255,247,216,.025) 2px 3px);
+}
+#email-panel .ep-frame::after{
+  content:""; position:absolute; left:18px; right:18px; top:-1px; height:2px; border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--gold-hot) 18%,rgba(243,210,122,.3) 60%,transparent);
+  box-shadow:0 0 10px rgba(255,239,184,.6);
+}
+.ep-shimmer{
+  display:none; position:absolute; inset:0; z-index:2; pointer-events:none; overflow:hidden;
+}
+#email-panel.loading .ep-shimmer{display:block}
+.ep-shimmer i{
+  position:absolute; top:-20%; left:-40%; width:40%; height:140%;
+  background:linear-gradient(90deg,transparent,rgba(255,247,216,.18),rgba(255,239,184,.28),transparent);
+  transform:skewX(-20deg);
+  animation:epSweep 1.6s ease-in-out infinite;
+}
+@keyframes epSweep{0%{left:-45%}100%{left:110%}}
+
+.ep-head{
+  position:relative; z-index:4;
+  display:flex; align-items:center; gap:10px;
+  height:40px; padding:0 12px 0 16px;
+  border-bottom:1px solid rgba(243,210,122,.28);
+}
+.ep-kicker{font-size:10px; letter-spacing:3px; font-weight:700; color:var(--gold-dim); white-space:nowrap}
+.ep-title{flex:1; font-family:Rajdhani; font-weight:700; font-size:15px; letter-spacing:3px; color:var(--gold); text-shadow:var(--gold-glow)}
+.ep-head button{
+  height:26px; padding:0 10px; border-radius:8px; cursor:pointer;
+  font-size:11px; font-weight:700; letter-spacing:1.5px; color:var(--gold-hot);
+  border:1px solid rgba(243,210,122,.4);
+}
+.ep-head button:hover{border-color:var(--gold-hot); background:rgba(243,210,122,.12)}
+#ep-back[hidden]{display:none!important}
+
+#ep-status{
+  position:relative; z-index:4;
+  padding:10px 16px 0; font-size:13px; letter-spacing:1.5px; color:var(--gold-mid);
+  min-height:0;
+}
+#email-panel.ready #ep-status{display:none}
+
+#ep-list{
+  position:relative; z-index:4;
+  list-style:none; margin:6px 8px 10px; padding:0 6px 8px;
+  height:calc(100% - 52px); overflow:auto; scrollbar-width:thin;
+}
+#ep-list li{
+  display:grid; grid-template-columns:10px 1fr auto; gap:4px 10px;
+  padding:8px 10px; border-radius:8px; cursor:pointer;
+  border:1px solid transparent;
+}
+#ep-list li:hover,#ep-list li:active{background:rgba(243,210,122,.08); border-color:rgba(243,210,122,.25)}
+#ep-list li .dot{width:8px;height:8px;border-radius:50%;margin-top:6px;background:transparent}
+#ep-list li.unread .dot{background:var(--gold-hot); box-shadow:0 0 8px rgba(255,239,184,.8)}
+#ep-list li .from{font-weight:700; font-size:15px; color:var(--gold-core); letter-spacing:.4px}
+#ep-list li .when{font-size:11px; letter-spacing:1px; color:var(--gold-dim); align-self:center}
+#ep-list li .subj{grid-column:2 / -1; font-size:13px; color:var(--gold); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+#ep-list li .snip{grid-column:2 / -1; font-size:12px; color:var(--gold-mid); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.85}
+#ep-list[hidden],#ep-detail[hidden]{display:none!important}
+
+#ep-detail{
+  position:relative; z-index:4;
+  height:calc(100% - 40px); overflow:auto; padding:10px 18px 14px;
+}
+#ep-detail .d-from{font-size:16px; font-weight:700; color:var(--gold-core)}
+#ep-detail .d-meta{font-size:12px; color:var(--gold-dim); letter-spacing:.6px; margin:2px 0 8px}
+#ep-detail .d-subj{font-size:15px; font-weight:700; color:var(--gold); margin-bottom:10px; letter-spacing:.5px}
+#ep-detail .d-body{font-size:14px; line-height:1.45; color:var(--gold-core); white-space:pre-wrap; opacity:.92}
+
+#email-panel.loading .ep-frame{box-shadow:0 0 22px rgba(255,239,184,.35),0 0 48px rgba(243,210,122,.18),inset 0 0 28px rgba(243,210,122,.1)}
+#email-panel.timeout #ep-status,#email-panel.error #ep-status{color:#e0bc6a}
+
+/* Phone: sit below the sphere, never cover it */
+@media (max-width: 899px) and (orientation: portrait){
+  #inbox-btn{
+    position:relative; left:auto; top:auto;
+    width:min(84vw,340px); margin:8px auto 0; height:36px;
+  }
+  #email-panel{
+    position:relative; left:auto; top:auto;
+    width:min(94vw,520px); height:auto; max-height:min(38vh,340px);
+    margin:8px auto 0; z-index:5;
+  }
+  #email-panel .ep-frame{height:min(38vh,340px)}
+  body.email-open #pillbox, body.email-open #m-hint, body.email-open #awake-badge{display:none!important}
+}

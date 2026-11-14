@@ -46,12 +46,12 @@ const rand = () => (_s = (_s * 16807) % 2147483647) / 2147483647;
 
 const SPHERE_R = 0.62;
 
-/* Film gold: white-hot core #FFF-#FFFFE0, inner web #FFD700, outer amber #FFA500-#FF8C00. No red, no blue. */
-const COL_CORE = 0xfff3d0;
-const COL_HOT  = 0xffe08a;
-const COL_GOLD = 0xffd700;
-const COL_AMBER = 0xffc14d;
-const COL_OUTER = 0xffb347;
+/* Film gold from Age of Ultron frames: pale yellow-gold, near-white highlights, honey mids, soft brown-gold edges. Not saturated orange. */
+const COL_CORE = 0xfff7d8;  // near-white pale yellow
+const COL_HOT  = 0xffefb8;  // cream-yellow highlight
+const COL_GOLD = 0xf3d27a;  // yellow-gold mid, hue ~43
+const COL_AMBER = 0xe0bc6a; // soft gold, not orange-brown
+const COL_OUTER = 0xc9a456; // dim gold
 
 function fibonacciSphere(n, r) {
   const pts = [];
@@ -145,7 +145,7 @@ for (let e = 0; e < edges.length; e += 2) {
   const midR = (a.length() + b.length()) * 0.5;
   const inner = 1 - (midR / SPHERE_R);
   const c = colFar.clone().lerp(colMid, 0.62 + inner * 0.38).lerp(colNear, 0.12 + Math.max(0, inner) * 0.50);
-  c.offsetHSL((rand() - 0.5) * 0.012, -0.04, (rand() - 0.5) * 0.05);
+  c.offsetHSL(0.035 + (rand() - 0.5) * 0.01, -0.10, 0.06 + (rand() - 0.5) * 0.04);
   for (let k = 0; k < 2; k++) {
     const p = k === 0 ? a : b;
     const i = (e + k) * 3;
@@ -171,7 +171,7 @@ const lineMat = new THREE.ShaderMaterial({
     "void main(){",
     "  float pulse = 0.55 + 0.45 * sin(uTime * 3.2 + seed * 6.28318);",
     "  float travel = 0.5 + 0.5 * sin(uTime * 6.0 + seed * 20.0);",
-    "  float lit = 0.74 + 0.14 * pulse + uAmp * (0.30 * travel + 0.18 * pulse);",
+    "  float lit = 0.88 + 0.14 * pulse + uAmp * (0.28 * travel + 0.16 * pulse);",
     "  vColor = color * lit;",
     "  float wobble = 1.0 + 0.012 * sin(uTime * 1.7 + seed * 6.28318) + 0.008 * sin(uTime * 0.85 + seed * 11.0);",
     "  vec3 pos = position * wobble;",
@@ -181,7 +181,7 @@ const lineMat = new THREE.ShaderMaterial({
   fragmentShader: [
     "varying vec3 vColor;",
     "void main(){",
-    "  gl_FragColor = vec4(vColor, 0.78);",
+    "  gl_FragColor = vec4(vColor, 0.86);",
     "}"
   ].join("\n"),
   transparent: true,
@@ -200,7 +200,7 @@ for (let i = 0; i < points.length; i++) {
   const d = p.length() / SPHERE_R;
   const c = new THREE.Color(COL_AMBER).lerp(new THREE.Color(COL_GOLD), 0.40 + (1 - d) * 0.40);
   c.lerp(new THREE.Color(COL_HOT), Math.max(0, (1 - d) * 0.50));
-  c.offsetHSL(0, -0.05, 0.02);
+  c.offsetHSL(0.035, -0.10, 0.08);
   pCol[i * 3] = c.r; pCol[i * 3 + 1] = c.g; pCol[i * 3 + 2] = c.b;
   pSeed[i] = rand();
 }
@@ -213,10 +213,10 @@ const ptC = document.createElement("canvas"); ptC.width = ptC.height = 64;
 (function(){
   const x = ptC.getContext("2d");
   const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, "rgba(255,248,220,1)");
-  g.addColorStop(0.18, "rgba(255,224,130,0.95)");
-  g.addColorStop(0.42, "rgba(255,200,70,0.50)");
-  g.addColorStop(0.72, "rgba(255,170,50,0.10)");
+  g.addColorStop(0, "rgba(255,248,230,1)");
+  g.addColorStop(0.18, "rgba(255,239,184,0.95)");
+  g.addColorStop(0.42, "rgba(243,210,122,0.50)");
+  g.addColorStop(0.72, "rgba(201,164,86,0.10)");
   g.addColorStop(1, "rgba(0,0,0,0)");
   x.fillStyle = g; x.fillRect(0, 0, 64, 64);
 })();
@@ -233,10 +233,10 @@ const pointMat = new THREE.ShaderMaterial({
     "uniform float uAmp;",
     "void main(){",
     "  float pulse = 0.7 + 0.3 * sin(uTime * 4.0 + seed * 6.28318);",
-    "  vColor = color * (0.92 + 0.55 * uAmp * pulse);",
+    "  vColor = color * (0.90 + 0.85 * uAmp * pulse);",
     "  float wobble = 1.0 + 0.012 * sin(uTime * 1.7 + seed * 6.28318);",
     "  vec4 mv = modelViewMatrix * vec4(position * wobble, 1.0);",
-    "  gl_PointSize = (8.0 + 7.0 * uAmp * pulse) * (5.0 / max(3.0, -mv.z));",
+    "  gl_PointSize = (7.0 + 2.4 * uAmp * pulse) * (5.0 / max(3.0, -mv.z));",
     "  gl_Position = projectionMatrix * mv;",
     "}"
   ].join("\n"),
@@ -271,24 +271,24 @@ function glowSprite(stops, size) {
   return spr;
 }
 const bloom = glowSprite([
-  [0, "rgba(255,220,140,0.28)"],
-  [0.20, "rgba(255,190,80,0.14)"],
-  [0.48, "rgba(255,160,50,0.05)"],
-  [0.75, "rgba(255,140,40,0.015)"],
+  [0, "rgba(255,236,200,0.22)"],
+  [0.20, "rgba(228,184,136,0.10)"],
+  [0.48, "rgba(196,150,106,0.04)"],
+  [0.75, "rgba(142,90,60,0.012)"],
   [1, "rgba(0,0,0,0)"]
 ], 1.15);
 const coreGlow = glowSprite([
-  [0, "rgba(255,248,220,0.85)"],
-  [0.12, "rgba(255,230,160,0.52)"],
-  [0.32, "rgba(255,200,90,0.26)"],
-  [0.60, "rgba(255,170,55,0.07)"],
+  [0, "rgba(255,247,230,0.82)"],
+  [0.12, "rgba(255,226,184,0.48)"],
+  [0.32, "rgba(228,184,136,0.20)"],
+  [0.60, "rgba(196,150,106,0.06)"],
   [1, "rgba(0,0,0,0)"]
 ], 0.62);
 const coreHot = glowSprite([
   [0, "rgba(255,255,250,1)"],
-  [0.14, "rgba(255,245,210,0.88)"],
-  [0.36, "rgba(255,220,150,0.42)"],
-  [0.65, "rgba(255,190,90,0.10)"],
+  [0.14, "rgba(255,241,212,0.86)"],
+  [0.36, "rgba(255,226,184,0.38)"],
+  [0.65, "rgba(228,184,136,0.08)"],
   [1, "rgba(0,0,0,0)"]
 ], 0.22);
 netGroup.add(bloom);
@@ -408,7 +408,7 @@ const sparkGeo = new THREE.BufferGeometry();
 sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
 const sparkMat = new THREE.PointsMaterial({
   map: ptTex,
-  color: 0xffe08a,
+  color: COL_HOT,
   size: 3,
   transparent: true,
   opacity: 0.55,
@@ -521,13 +521,13 @@ function frame(now) {
     netGroup.rotation.z = 0.05;
   }
 
-  const cs = 1.0 + 0.26 * amp + 0.04 * Math.sin(t * 3.5);
-  bloom.scale.set(1.18 * (1 + 0.08 * amp), 1.18 * (1 + 0.08 * amp), 1);
-  bloom.material.opacity = 0.32 + 0.22 * amp;
-  coreGlow.scale.set(0.46 * cs, 0.46 * cs, 1);
-  coreHot.scale.set(0.18 * cs, 0.18 * cs, 1);
-  coreGlow.material.opacity = 0.38 + 0.30 * amp;
-  coreHot.material.opacity = 0.72 + 0.26 * amp;
+  // Film: outer size stays constant; fragments shimmer/brighten with the voice. No whole-sphere balloon.
+  bloom.scale.set(1.18, 1.18, 1);
+  bloom.material.opacity = 0.22 + 0.20 * amp;
+  coreGlow.scale.set(0.46, 0.46, 1);
+  coreHot.scale.set(0.18 * (1 + 0.04 * amp), 0.18 * (1 + 0.04 * amp), 1);
+  coreGlow.material.opacity = 0.34 + 0.40 * amp;
+  coreHot.material.opacity = 0.68 + 0.32 * amp;
 
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];

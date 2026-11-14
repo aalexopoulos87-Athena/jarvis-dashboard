@@ -3,7 +3,7 @@
 "use strict";
 const C = Object.assign({VOICE_DIRS:["assets/voice/final_Paul_Bettany_AI","assets/voice/clean_Paul_Bettany_AI"],WEBHOOK_URL:"",RESPONSES_URL:"",RESPONSES_POLL_SECONDS:15,RESPONSES_TOPIC:"",SOURCE:"phone",
   DATA_URL:"data.json",DATA_REFRESH_SECONDS:60,WEATHER:null,
-  TIMEZONE:"",WAKE_WORD_ON_MOBILE:false,USE_24H:true,WAKE_WORD:"jarvis",WAKE_WORD_ENABLED:true,TTS_PITCH:.85,TTS_RATE:.95,
+  TIMEZONE:"",WAKE_WORD_ON_MOBILE:false,USE_24H:true,WAKE_WORD:"jarvis",WAKE_WORD_ENABLED:true,TTS_PITCH:.9,TTS_RATE:.95,
   TTS_VOICE_PREFERENCE:["Microsoft Ryan","Google UK English Male","en-GB"],PLAY_STARTUP_GREETING:true,WEBHOOK_HEADERS:{}}, window.JARVIS_CONFIG||{});
 const $ = s => document.querySelector(s);
 try{ C.TIMEZONE = C.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE}); }catch(e){ C.TIMEZONE="UTC"; }
@@ -47,7 +47,7 @@ function probe(src){ if(location.protocol==="file:") return new Promise(res=>{ c
   return fetch(src).then(r=>r.ok).catch(()=>false); }
 async function resolveVoiceDir(){ for(const d of C.VOICE_DIRS){ if(await probe(`${d}/${CUES.ready}.mp3`)){ voiceDir=d; break; } }
   $("#gi-pack").textContent = voiceDir? (voiceDir.includes("final")?"BETTANY · FINAL":"BETTANY · CLEAN") : "NO CLIPS";
-  if(voiceDir) Object.values(CUES).forEach(c=>{ const src=`${voiceDir}/${c}.mp3`; if(!audioCache[src]){ const a=new Audio(); a.preload="auto"; a.src=src; audioCache[src]=a; } });
+  if(voiceDir){ const files=Object.values(CUES).concat(typeof LINE_CLIP_FILES!=="undefined"?LINE_CLIP_FILES:[]); files.forEach(c=>{ if(!c) return; const src=`${voiceDir}/${c}.mp3`; if(!audioCache[src]){ const a=new Audio(); a.preload="auto"; a.src=src; audioCache[src]=a; } }); }
   return voiceDir; }
 const audioCache={};
 const voiceReady = resolveVoiceDir();
@@ -213,6 +213,34 @@ async function playExclusiveCue(name, token){
   vlog({ev:"end",kind:"cue",name,ok});
   return ok;
 }
+
+async function playExclusiveFile(file, token){
+  if(token==null) token=voiceSeq;
+  if(token!==voiceSeq || !canSpeak() || !file) return false;
+  await voiceReady;
+  if(token!==voiceSeq || !canSpeak() || !voiceDir) return false;
+  silenceAll();
+  if(token!==voiceSeq) return false;
+  const src=`${voiceDir}/${file}.mp3`;
+  const a=audioCache[src]||(audioCache[src]=new Audio(src));
+  a._jarvisCue=true;
+  hookMedia(a);
+  activeMedia=a;
+  try{ a.currentTime=0; }catch(_){}
+  speaking=true; setBusy();
+  vlog({ev:"start",kind:"cue",name:file});
+  const ok=await new Promise(res=>{
+    let done=false;
+    const fin=good=>{ if(done) return; done=true; clearTimeout(guard); a._jarvisFin=null; if(activeMedia===a) activeMedia=null; speaking=false; setBusy(); res(!!good); };
+    const guard=setTimeout(()=>fin(true),20000);
+    a._jarvisFin=fin;
+    a.onended=()=>fin(true); a.onerror=()=>fin(false);
+    const p=a.play(); if(p&&p.catch) p.catch(()=>fin(false));
+  });
+  vlog({ev:"end",kind:"cue",name:file,ok});
+  return ok;
+}
+
 async function playExclusiveUrl(url, token){
   if(token!==voiceSeq || !canSpeak() || !url) return false;
   silenceAll();
@@ -234,7 +262,7 @@ async function playExclusiveUrl(url, token){
   return ok;
 }
 async function playExclusiveTts(text, token){
-  if(token!==voiceSeq || !canSpeak() || !text || !("speechSynthesis" in window)) return false;
+  if(token!==voiceSeq || !canSpeak() || !text || !("speechSynthesis" in window) || !ttsVoice) return false;
   silenceAll();
   if(token!==voiceSeq) return false;
   noteTts(text);
@@ -294,48 +322,102 @@ function pickVariant(key, bank){
 const LINES={
   boot:[
     {id:"clip", cue:"boot", text:"Welcome back, sir. System booted successfully. All systems are now online and fully operational."},
-    {id:"tod-welcome", text:()=>"Good "+dayPart()+", sir. Welcome back. All systems are online and fully operational."},
-    {id:"tod-standby", text:()=>"Good "+dayPart()+", sir. I've completed the boot sequence and I'm standing by."},
-    {id:"tod-pleasure", text:()=>"Good "+dayPart()+", sir. A pleasure to see you. Every system is nominal."},
-    {id:"order", text:"Welcome back, sir. Everything is in order. I'm ready when you are."},
-    {id:"hello", text:"Hello, sir. Boot sequence complete. I'm at your disposal."}
+    {id:"tod-welcome", clip:()=>"var_boot_tod_welcome_"+dayPart(), text:()=>"Good "+dayPart()+", sir. Welcome back. All systems are online and fully operational."},
+    {id:"tod-standby", clip:()=>"var_boot_tod_standby_"+dayPart(), text:()=>"Good "+dayPart()+", sir. I've completed the boot sequence and I'm standing by."},
+    {id:"tod-pleasure", clip:()=>"var_boot_tod_pleasure_"+dayPart(), text:()=>"Good "+dayPart()+", sir. A pleasure to see you. Every system is nominal."},
+    {id:"order", clip:"var_boot_order", text:"Welcome back, sir. Everything is in order. I'm ready when you are."},
+    {id:"hello", clip:"var_boot_hello", text:"Hello, sir. Boot sequence complete. I'm at your disposal."}
   ],
   ready:[
     {id:"clip", cue:"ready", text:"Sir, I am fully operational and standing by, ready whenever you are."},
-    {id:"service", text:"At your service, sir."},
-    {id:"here", text:"Yes, sir. I'm here."},
-    {id:"listening", text:"I'm listening, sir."},
-    {id:"whenever", text:"Ready when you are, sir."},
-    {id:"tod", text:()=>"Good "+dayPart()+", sir. Standing by."}
+    {id:"service", clip:"var_ready_service", text:"At your service, sir."},
+    {id:"here", clip:"var_ready_here", text:"Yes, sir. I'm here."},
+    {id:"listening", clip:"var_ready_listening", text:"I'm listening, sir."},
+    {id:"whenever", clip:"var_ready_whenever", text:"Ready when you are, sir."},
+    {id:"tod", clip:()=>"var_ready_tod_"+dayPart(), text:()=>"Good "+dayPart()+", sir. Standing by."}
   ],
   error:[
     {id:"clip", cue:"error", text:"Apologies, sir. I'm afraid something has gone wrong."},
-    {id:"uplink", text:"Apologies, sir. I couldn't reach the uplink."},
-    {id:"through", text:"I'm sorry, sir. That didn't go through."},
-    {id:"afraid", text:"I'm afraid that failed, sir."},
-    {id:"transmission", text:"Something went wrong with the transmission, sir."},
-    {id:"complete", text:"Apologies, sir. I wasn't able to complete that."}
+    {id:"uplink", clip:"var_error_uplink", text:"Apologies, sir. I couldn't reach the uplink."},
+    {id:"through", clip:"var_error_through", text:"I'm sorry, sir. That didn't go through."},
+    {id:"afraid", clip:"var_error_afraid", text:"I'm afraid that failed, sir."},
+    {id:"transmission", clip:"var_error_transmission", text:"Something went wrong with the transmission, sir."},
+    {id:"complete", clip:"var_error_complete", text:"Apologies, sir. I wasn't able to complete that."}
   ]
 };
+const LINE_CLIP_FILES=["var_boot_tod_welcome_morning","var_boot_tod_welcome_afternoon","var_boot_tod_welcome_evening","var_boot_tod_standby_morning","var_boot_tod_standby_afternoon","var_boot_tod_standby_evening","var_boot_tod_pleasure_morning","var_boot_tod_pleasure_afternoon","var_boot_tod_pleasure_evening","var_boot_order","var_boot_hello","var_ready_service","var_ready_here","var_ready_listening","var_ready_whenever","var_ready_tod_morning","var_ready_tod_afternoon","var_ready_tod_evening","var_error_uplink","var_error_through","var_error_afraid","var_error_transmission","var_error_complete"];
+function resolveClip(it){
+  if(!it) return "";
+  if(typeof it.clip==="function") return it.clip()||"";
+  if(it.clip) return it.clip;
+  if(it.cue && CUES[it.cue]) return CUES[it.cue];
+  return "";
+}
 function cueAvailable(name){
   if(!voiceDir||!CUES[name]) return false;
   return !!audioCache[`${voiceDir}/${CUES[name]}.mp3`];
+}
+function clipAvailable(file){
+  if(!voiceDir||!file) return false;
+  return !!audioCache[`${voiceDir}/${file}.mp3`];
+}
+function availableLines(key){
+  const bank=LINES[key]; if(!bank) return [];
+  return bank.map(it=>{
+    const text=typeof it.text==="function"?it.text():it.text;
+    const clip=resolveClip(it);
+    return {id:it.id, text, clip, cue:it.cue||""};
+  }).filter(it=>clipAvailable(it.clip));
 }
 async function speakLine(key){
   const bank=LINES[key];
   if(!bank) return cue(key);
   await voiceReady;
-  const v=pickVariant(key, bank);
-  vlog({ev:"line",key,id:v.id,hasClip:!!(v.cue&&cueAvailable(v.cue))});
-  if(v.cue && cueAvailable(v.cue)) return cue(v.cue);
-  return say(v.text);
+  const pool=availableLines(key);
+  if(!pool.length){ vlog({ev:"line-skip",key,reason:"no-clip"}); return; }
+  const prev=lastVariant[key];
+  const choices=pool.length>1?pool.filter(it=>it.id!==prev):pool;
+  const v=choices[Math.floor(Math.random()*choices.length)]||pool[0];
+  lastVariant[key]=v.id;
+  vlog({ev:"line",key,id:v.id,clip:v.clip});
+  const src=`${voiceDir}/${v.clip}.mp3`;
+  const a=audioCache[src]||(audioCache[src]=new Audio(src));
+  if(voiceJobDepth>0) return playExclusiveFile(v.clip, voiceSeq);
+  return enqueueVoice(token=>playExclusiveFile(v.clip, token));
 }
 
 const audioWaiters=new Map();
 const recentAudio=[];
-let lastLocalAck=0;
-function isAckText(t){ return /^on it,?\s*sir\.?$/i.test(String(t||"").trim()); }
-function shouldSkipAck(text){ return isAckText(text) && (Date.now()-lastLocalAck)<20000; }
+const ACK_WAIT_MS=3000;
+const ACK_LINES=[
+  "I'll get that for you in a moment, sir.",
+  "Let me look into that, sir.",
+  "One moment, sir, I'm checking now.",
+  "Give me just a second, sir.",
+  "Looking into it now, sir.",
+  "Let me find out for you, sir.",
+  "Right away, sir.",
+  "Of course, sir. I'm on it.",
+  "Consider it done, sir. Give me a moment.",
+  "Very good, sir. Working on it now.",
+  "Certainly, sir. One moment.",
+  "As you wish, sir.",
+  "On it, sir."
+];
+const ACK_SET=new Set(ACK_LINES);
+function isAckText(t){ return ACK_SET.has(String(t||"").trim()); }
+let requestGen=0, lastRequestAt=0, ackPlayedGen=0, realReplyGen=0, pendingAck=null;
+function noteSentRequest(){
+  requestGen++;
+  lastRequestAt=Date.now();
+  ackPlayedGen=0;
+  realReplyGen=0;
+  if(pendingAck && !pendingAck.started){ pendingAck.cancelled=true; vlog({ev:"drop-ack",reason:"new-request"}); }
+  pendingAck=null;
+}
+function ackStillWanted(job){
+  return !!(job && !job.cancelled && job.gen===requestGen && realReplyGen!==job.gen && ackPlayedGen!==job.gen);
+}
 
 function takeRecentAudio(text){
   const now=Date.now();
@@ -357,9 +439,12 @@ function waitForAudio(text, ms){
 }
 function offerAudio(msg){
   if(!msg||!msg.url) return;
-  if(shouldSkipAck(msg.text) || ttsAlready(msg.text)){
-    vlog({ev:"drop-mp3",reason:ttsAlready(msg.text)?"tts-already":"ack",text:msg.text});
-    return;
+  if(ttsAlready(msg.text)){ vlog({ev:"drop-mp3",reason:"tts-already",text:msg.text}); return; }
+  if(isAckText(msg.text)){
+    if(!requestGen || realReplyGen===requestGen || ackPlayedGen===requestGen || Date.now()-lastRequestAt>ACK_WAIT_MS+400){
+      vlog({ev:"drop-ack",reason:"mp3-late-or-unwanted",text:msg.text});
+      return;
+    }
   }
   const arr=audioWaiters.get(msg.text);
   if(arr&&arr.length){ arr[0].finish(msg.url); return; }
@@ -370,13 +455,39 @@ async function onReply(text,id,knownUrl){
   lastReply={text,id,ts:Date.now()};
   log("JARVIS: "+text);
   holdStatus("NEW REPLY",false,8000);
-  if(shouldSkipAck(text)){ vlog({ev:"skip-ack",text}); return; }
+  if(isAckText(text)){
+    const gen=requestGen;
+    const age=lastRequestAt?Date.now()-lastRequestAt:1e9;
+    if(!gen || realReplyGen===gen || ackPlayedGen===gen || age>ACK_WAIT_MS){
+      vlog({ev:"drop-ack",reason:!gen?"no-request":(realReplyGen===gen?"real-reply":(ackPlayedGen===gen?"already":"late")),text,age});
+      return;
+    }
+    const primed=knownUrl||takeRecentAudio(text);
+    const left=Math.max(400, ACK_WAIT_MS-age);
+    const urlP=primed?Promise.resolve(primed):waitForAudio(text, left);
+    const job={gen, cancelled:false, started:false};
+    pendingAck=job;
+    return enqueueVoice(async token=>{
+      if(token!==voiceSeq || !canSpeak() || !ackStillWanted(job)){ vlog({ev:"drop-ack",reason:"cancelled-before-start",text}); return; }
+      let url=await urlP;
+      if(!url) url=takeRecentAudio(text);
+      if(token!==voiceSeq || !canSpeak() || !ackStillWanted(job)){ vlog({ev:"drop-ack",reason:"cancelled-before-start",text}); return; }
+      if(!url){ vlog({ev:"drop-ack",reason:"no-mp3",text}); return; }
+      job.started=true;
+      ackPlayedGen=job.gen;
+      if(pendingAck===job) pendingAck=null;
+      vlog({ev:"ack-play",text});
+      await playExclusiveUrl(url, token);
+    });
+  }
+  realReplyGen=requestGen;
+  if(pendingAck && !pendingAck.started){ pendingAck.cancelled=true; vlog({ev:"drop-ack",reason:"real-reply"}); pendingAck=null; }
   const arrived=Date.now();
   const primed=knownUrl||takeRecentAudio(text);
   const urlP=primed?Promise.resolve(primed):waitForAudio(text, AUDIO_WAIT_MS);
   return enqueueVoice(async token=>{
     if(token!==voiceSeq || !canSpeak()) return;
-    if(!isAckText(text)) await playExclusiveCue("done", token);
+    await playExclusiveCue("done", token);
     if(token!==voiceSeq || !canSpeak() || !text) return;
     let url=await urlP;
     if(!url) url=takeRecentAudio(text);
@@ -419,13 +530,31 @@ showVoiceUnlock();
 
 /* ---------- TTS voice ---------- */
 let ttsVoice=null;
-function pickVoice(){ const vs=speechSynthesis.getVoices(); if(!vs.length) return;
-  for(const pref of C.TTS_VOICE_PREFERENCE){ const p=pref.toLowerCase();
-    const L=v=>String(v.lang||"").toLowerCase().replace("_","-");
-    const v=vs.find(v=>v.name.toLowerCase().includes(p)) || (p.includes("-")? (vs.find(v=>L(v)===p && /male|ryan|george|thomas|daniel|arthur/i.test(v.name))||vs.find(v=>L(v)===p)):null);
-    if(v){ ttsVoice=v; break; } }
-  if(!ttsVoice) ttsVoice=vs.find(v=>/^en/i.test(v.lang))||vs[0];
-  $("#gi-tts")&&($("#gi-tts").textContent = ("TTS: "+ttsVoice.name.replace(/Microsoft |Google | Online.*|\(.*\)/g,"")).slice(0,16).toUpperCase()); }
+function voiceName(v){ return String(v&&v.name||""); }
+function voiceLang(v){ return String(v&&v.lang||"").toLowerCase().replace("_","-"); }
+function isFemaleVoice(v){ return /female|woman|zira|samantha|karen|moira|tessa|fiona|veena|susan|hazel|kate|serena|salli|ivy|joanna|kendra|kimberly|amy|emma|linda|heather|mary|zira/i.test(voiceName(v)); }
+function isMaleVoice(v){
+  if(!v || isFemaleVoice(v)) return false;
+  return /male|daniel|george|arthur|oliver|david|ryan|rishi|james|thomas|fred|gordon|mark|steve|brian|guy|matthew|justin|joey|geraint|wayne/i.test(voiceName(v));
+}
+function pickVoice(){
+  const vs=speechSynthesis.getVoices(); if(!vs.length) return;
+  const prefer=[].concat(C.TTS_VOICE_PREFERENCE||[],["Google UK English Male","Microsoft George","Microsoft Arthur","Microsoft Ryan","Daniel","George","Arthur","Oliver","David","James","Thomas"]);
+  let found=null;
+  for(const pref of prefer){
+    const p=String(pref).toLowerCase();
+    const hit=vs.find(v=>voiceName(v).toLowerCase().includes(p) && !isFemaleVoice(v));
+    if(hit){ found=hit; break; }
+  }
+  if(!found) found=vs.find(v=>isMaleVoice(v) && /^en-gb/i.test(voiceLang(v)));
+  if(!found) found=vs.find(v=>isMaleVoice(v) && /^en/i.test(voiceLang(v)));
+  if(!found) found=vs.find(v=>isMaleVoice(v));
+  if(!found) found=vs.find(v=>/^en/i.test(voiceLang(v)) && !isFemaleVoice(v));
+  if(found && isFemaleVoice(found)) found=null;
+  ttsVoice=found||null;
+  const g=$("#gi-tts");
+  if(g) g.textContent = ttsVoice?("TTS: "+ttsVoice.name.replace(/Microsoft |Google | Online.*|\(.*\)/g,"")).slice(0,16).toUpperCase():"NO MALE TTS";
+}
 if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; } else { const g=$("#gi-tts"); if(g) g.textContent="NO TTS"; }
 
 /* ---------- state helpers ---------- */
@@ -740,7 +869,7 @@ async function sendRequest(text){
   if(!req){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the requests channel"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
-  lastLocalAck=Date.now(); cue("ack");
+  noteSentRequest();
   const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
   try{
     // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.
@@ -849,7 +978,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,markLocalAck:()=>{lastLocalAck=Date.now();},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

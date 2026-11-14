@@ -108,7 +108,7 @@ svg{display:block} a{color:inherit;text-decoration:none}
 .kv.ok span{color:var(--ok)}
 #core-stage{position:absolute;left:653px;top:110px;width:700px;height:700px;z-index:2}
 #sphere-glow{position:absolute;inset:14% 14% 18% 14%;pointer-events:none;z-index:1;
-  background:radial-gradient(circle at 50% 48%,rgba(255,200,80,.12) 0%,rgba(255,165,40,.05) 36%,transparent 66%);
+  background:radial-gradient(circle at 50% 48%,rgba(255,236,200,.14) 0%,rgba(228,184,136,.05) 36%,transparent 66%);
   filter:blur(8px)}
 #sphere{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2}
 #ring{position:absolute;left:0;top:0;width:100%;height:100%;z-index:3;cursor:pointer}

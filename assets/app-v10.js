@@ -270,7 +270,7 @@ function ntfyPayload(ev){
   if(!text&&!url) return null;
   return {id:String(data.id||data.time||text||url), text, isAudio, url};
 }
-const AUDIO_WAIT_MS=6000;
+const AUDIO_WAIT_MS=10000;
 const audioWaiters=new Map();
 const recentAudio=[];
 let replyAudio=null, speakGen=0, speakChain=Promise.resolve();

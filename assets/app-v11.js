@@ -113,14 +113,291 @@ window.JARVIS_AUDIO={
   speaking(){ return !!speaking; }
 };
 
-async function cue(name){
-  await voiceReady; if(muted||!voiceDir||!CUES[name]) return;
-  const src=`${voiceDir}/${CUES[name]}.mp3`; const a=audioCache[src]||(audioCache[src]=new Audio(src));
-  hookMedia(a);
-  a.currentTime=0; speaking=true; setBusy();
-  await new Promise(res=>{ a.onended=a.onerror=res; a.play().catch(res); });
-  speaking=false; setBusy();
+/* ---------- single speaker: one queue, one instance, exclusive output ---------- */
+const AUDIO_WAIT_MS=(()=>{ const n=parseInt(qs.get("audiowait")||"",10); return Number.isFinite(n)&&n>=0?Math.min(60000,n):10000; })();
+const AUDIO_RETAIN_MS=60000;
+const voiceLog=[];
+function vlog(e){ try{ voiceLog.push(Object.assign({t:Math.round(performance.now())},e)); if(voiceLog.length>300) voiceLog.shift(); }catch(_){ } }
+window.JARVIS_VOICE_LOG=voiceLog;
+
+const instId="j"+Math.random().toString(36).slice(2)+Date.now().toString(36);
+const INST_KEY="jarvis_voice_instance";
+let leaderId=instId, leaderTs=Date.now(), voiceChan=null;
+function isVoiceLeader(){ return leaderId===instId; }
+function onRemoteClaim(rec){
+  if(!rec||!rec.id||rec.id===instId) return;
+  const ts=+rec.ts||0;
+  if(ts>leaderTs || (ts===leaderTs && String(rec.id)>instId)){
+    const was=isVoiceLeader();
+    leaderId=rec.id; leaderTs=ts;
+    if(was) invalidateVoice();
+  } else if(isVoiceLeader()){
+    try{ voiceChan&&voiceChan.postMessage({type:"claim",id:instId,ts:leaderTs}); }catch(_){}
+  }
 }
+function claimVoice(){
+  leaderId=instId; leaderTs=Date.now();
+  const rec={id:instId,ts:leaderTs};
+  try{ localStorage.setItem(INST_KEY,JSON.stringify(rec)); }catch(_){}
+  try{ voiceChan&&voiceChan.postMessage({type:"claim",id:instId,ts:leaderTs}); }catch(_){}
+}
+try{
+  voiceChan=new BroadcastChannel("jarvis-voice");
+  voiceChan.onmessage=ev=>{ const d=ev&&ev.data; if(d&&d.type==="claim") onRemoteClaim(d); };
+}catch(_){ voiceChan=null; }
+addEventListener("storage",ev=>{
+  if(ev.key!==INST_KEY||!ev.newValue) return;
+  try{ onRemoteClaim(JSON.parse(ev.newValue)); }catch(_){}
+});
+addEventListener("focus",claimVoice);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) claimVoice(); });
+["pointerdown","touchend","keydown"].forEach(ev=>addEventListener(ev,claimVoice,{capture:true,passive:true}));
+if(!document.hidden) claimVoice();
+
+function canSpeak(){ return !muted && isVoiceLeader(); }
+
+let voiceSeq=0, voiceJobDepth=0, speakChain=Promise.resolve();
+let activeMedia=null, ttsUtter=null, ttsForText="";
+const spokenTts=new Set();
+function noteTts(text){ if(!text) return; spokenTts.add(text); if(spokenTts.size>40){ spokenTts.delete(spokenTts.values().next().value); } }
+function ttsAlready(text){ return !!(text&&(spokenTts.has(text)||ttsForText===text)); }
+
+function silenceAll(){
+  const a=activeMedia; activeMedia=null;
+  if(a){
+    try{ if(typeof a._jarvisFin==="function") a._jarvisFin(false); }catch(_){}
+    try{ a.pause(); a.onended=a.onerror=a.onplaying=null; if(!a._jarvisCue){ a.removeAttribute("src"); a.load(); } else { try{ a.currentTime=0; }catch(_){ } } }catch(_){}
+  }
+  const u=ttsUtter;
+  ttsUtter=null; ttsForText="";
+  try{ if(u && typeof u._jarvisFin==="function") u._jarvisFin(false); }catch(_){}
+  try{ if("speechSynthesis" in window) speechSynthesis.cancel(); }catch(_){}
+  speaking=false; try{ setBusy(); }catch(_){}
+}
+function invalidateVoice(){ voiceSeq++; silenceAll(); }
+function stopReplyAudio(){ invalidateVoice(); }
+
+function enqueueVoice(fn){
+  speakChain=speakChain.then(job,job);
+  async function job(){
+    voiceJobDepth++;
+    try{ await fn(voiceSeq); }
+    catch(e){ vlog({ev:"job-error",err:String(e&&e.message||e)}); }
+    finally{ voiceJobDepth--; }
+  }
+  return speakChain;
+}
+
+async function playExclusiveCue(name, token){
+  if(token!==voiceSeq || !canSpeak()) return false;
+  await voiceReady;
+  if(token!==voiceSeq || !canSpeak() || !voiceDir || !CUES[name]) return false;
+  silenceAll();
+  if(token!==voiceSeq) return false;
+  const src=`${voiceDir}/${CUES[name]}.mp3`;
+  const a=audioCache[src]||(audioCache[src]=new Audio(src));
+  a._jarvisCue=true;
+  hookMedia(a);
+  activeMedia=a;
+  try{ a.currentTime=0; }catch(_){}
+  speaking=true; setBusy();
+  vlog({ev:"start",kind:"cue",name});
+  const ok=await new Promise(res=>{
+    let done=false;
+    const fin=good=>{ if(done) return; done=true; clearTimeout(guard); a._jarvisFin=null; if(activeMedia===a) activeMedia=null; speaking=false; setBusy(); res(!!good); };
+    const guard=setTimeout(()=>fin(true),20000);
+    a._jarvisFin=fin;
+    a.onended=()=>fin(true); a.onerror=()=>fin(false);
+    const p=a.play(); if(p&&p.catch) p.catch(()=>fin(false));
+  });
+  vlog({ev:"end",kind:"cue",name,ok});
+  return ok;
+}
+async function playExclusiveUrl(url, token){
+  if(token!==voiceSeq || !canSpeak() || !url) return false;
+  silenceAll();
+  if(token!==voiceSeq) return false;
+  const a=new Audio(); a.preload="auto"; a.crossOrigin="anonymous";
+  hookMedia(a);
+  activeMedia=a;
+  speaking=true; setBusy();
+  vlog({ev:"start",kind:"mp3"});
+  const ok=await new Promise(res=>{
+    let done=false;
+    const fin=good=>{ if(done) return; done=true; clearTimeout(guard); a._jarvisFin=null; if(activeMedia===a) activeMedia=null; speaking=false; setBusy(); res(!!good); };
+    const guard=setTimeout(()=>fin(false),20000);
+    a._jarvisFin=fin;
+    a.onended=()=>fin(true); a.onerror=()=>fin(false); a.onplaying=()=>{speaking=true;setBusy();};
+    a.src=url; const p=a.play(); if(p&&p.catch) p.catch(()=>fin(false));
+  });
+  vlog({ev:"end",kind:"mp3",ok});
+  return ok;
+}
+async function playExclusiveTts(text, token){
+  if(token!==voiceSeq || !canSpeak() || !text || !("speechSynthesis" in window)) return false;
+  silenceAll();
+  if(token!==voiceSeq) return false;
+  noteTts(text);
+  ttsForText=text;
+  vlog({ev:"start",kind:"tts",text});
+  const ok=await new Promise(res=>{
+    const u=new SpeechSynthesisUtterance(text); ttsUtter=u;
+    if(ttsVoice) u.voice=ttsVoice; u.pitch=C.TTS_PITCH; u.rate=C.TTS_RATE;
+    u.lang=(ttsVoice&&ttsVoice.lang)||"en-GB";
+    let done=false;
+    const fin=good=>{ if(done) return; done=true; clearTimeout(guard); u._jarvisFin=null; if(ttsUtter===u){ ttsUtter=null; if(ttsForText===text) ttsForText=""; } speaking=false; setBusy(); res(!!good); };
+    const guard=setTimeout(()=>fin(true), 4000+String(text).length*120);
+    u._jarvisFin=fin;
+    u.onstart=()=>{speaking=true;setBusy();}; u.onend=()=>fin(true); u.onerror=()=>fin(false);
+    try{ speechSynthesis.speak(u); }catch(e){ fin(false); }
+  });
+  vlog({ev:"end",kind:"tts",ok});
+  return ok;
+}
+
+async function cue(name){
+  if(voiceJobDepth>0) return playExclusiveCue(name, voiceSeq);
+  return enqueueVoice(token=>playExclusiveCue(name, token));
+}
+function say(text){
+  if(!text) return Promise.resolve();
+  if(voiceJobDepth>0) return playExclusiveTts(text, voiceSeq);
+  return enqueueVoice(token=>playExclusiveTts(text, token));
+}
+function playUrl(url){
+  if(voiceJobDepth>0) return playExclusiveUrl(url, voiceSeq);
+  return enqueueVoice(token=>playExclusiveUrl(url, token));
+}
+
+function dayPart(){
+  let h;
+  try{
+    const opt={hour:"2-digit",hour12:false};
+    if(C.TIMEZONE) opt.timeZone=C.TIMEZONE;
+    const o={}; new Intl.DateTimeFormat("en-GB",opt).formatToParts(new Date()).forEach(p=>o[p.type]=p.value);
+    h=+o.hour;
+  }catch(e){ h=new Date().getHours(); }
+  if(h<5) return "evening";
+  if(h<12) return "morning";
+  if(h<18) return "afternoon";
+  return "evening";
+}
+const lastVariant={};
+function pickVariant(key, bank){
+  const items=bank.map(it=>({id:it.id, cue:it.cue||"", text:typeof it.text==="function"?it.text():it.text}));
+  const prev=lastVariant[key];
+  const pool=items.length>1?items.filter(it=>it.id!==prev):items;
+  const choice=pool[Math.floor(Math.random()*pool.length)]||items[0];
+  lastVariant[key]=choice.id;
+  return choice;
+}
+const LINES={
+  boot:[
+    {id:"clip", cue:"boot", text:"Welcome back, sir. System booted successfully. All systems are now online and fully operational."},
+    {id:"tod-welcome", text:()=>"Good "+dayPart()+", sir. Welcome back. All systems are online and fully operational."},
+    {id:"tod-standby", text:()=>"Good "+dayPart()+", sir. I've completed the boot sequence and I'm standing by."},
+    {id:"tod-pleasure", text:()=>"Good "+dayPart()+", sir. A pleasure to see you. Every system is nominal."},
+    {id:"order", text:"Welcome back, sir. Everything is in order. I'm ready when you are."},
+    {id:"hello", text:"Hello, sir. Boot sequence complete. I'm at your disposal."}
+  ],
+  ready:[
+    {id:"clip", cue:"ready", text:"Sir, I am fully operational and standing by, ready whenever you are."},
+    {id:"service", text:"At your service, sir."},
+    {id:"here", text:"Yes, sir. I'm here."},
+    {id:"listening", text:"I'm listening, sir."},
+    {id:"whenever", text:"Ready when you are, sir."},
+    {id:"tod", text:()=>"Good "+dayPart()+", sir. Standing by."}
+  ],
+  error:[
+    {id:"clip", cue:"error", text:"Apologies, sir. I'm afraid something has gone wrong."},
+    {id:"uplink", text:"Apologies, sir. I couldn't reach the uplink."},
+    {id:"through", text:"I'm sorry, sir. That didn't go through."},
+    {id:"afraid", text:"I'm afraid that failed, sir."},
+    {id:"transmission", text:"Something went wrong with the transmission, sir."},
+    {id:"complete", text:"Apologies, sir. I wasn't able to complete that."}
+  ]
+};
+function cueAvailable(name){
+  if(!voiceDir||!CUES[name]) return false;
+  return !!audioCache[`${voiceDir}/${CUES[name]}.mp3`];
+}
+async function speakLine(key){
+  const bank=LINES[key];
+  if(!bank) return cue(key);
+  await voiceReady;
+  const v=pickVariant(key, bank);
+  vlog({ev:"line",key,id:v.id,hasClip:!!(v.cue&&cueAvailable(v.cue))});
+  if(v.cue && cueAvailable(v.cue)) return cue(v.cue);
+  return say(v.text);
+}
+
+const audioWaiters=new Map();
+const recentAudio=[];
+let lastLocalAck=0;
+function isAckText(t){ return /^on it,?\s*sir\.?$/i.test(String(t||"").trim()); }
+function shouldSkipAck(text){ return isAckText(text) && (Date.now()-lastLocalAck)<20000; }
+
+function takeRecentAudio(text){
+  const now=Date.now();
+  for(let i=0;i<recentAudio.length;i++){
+    if(now-recentAudio[i].ts>AUDIO_RETAIN_MS){ recentAudio.splice(i,1); i--; continue; }
+    if(recentAudio[i].text===text){ return recentAudio.splice(i,1)[0].url; }
+  }
+  return "";
+}
+function waitForAudio(text, ms){
+  const ready=takeRecentAudio(text); if(ready) return Promise.resolve(ready);
+  const windowMs=(typeof ms==="number"?ms:AUDIO_WAIT_MS);
+  return new Promise(resolve=>{
+    const rec={};
+    rec.timer=setTimeout(()=>rec.finish(""), Math.max(0,windowMs));
+    rec.finish=url=>{ if(rec.done) return; rec.done=true; clearTimeout(rec.timer); const arr=audioWaiters.get(text)||[]; const i=arr.indexOf(rec); if(i>=0) arr.splice(i,1); if(!arr.length) audioWaiters.delete(text); resolve(url||""); };
+    const arr=audioWaiters.get(text)||[]; arr.push(rec); audioWaiters.set(text,arr);
+  });
+}
+function offerAudio(msg){
+  if(!msg||!msg.url) return;
+  if(shouldSkipAck(msg.text) || ttsAlready(msg.text)){
+    vlog({ev:"drop-mp3",reason:ttsAlready(msg.text)?"tts-already":"ack",text:msg.text});
+    return;
+  }
+  const arr=audioWaiters.get(msg.text);
+  if(arr&&arr.length){ arr[0].finish(msg.url); return; }
+  recentAudio.push({text:msg.text,url:msg.url,ts:Date.now()}); if(recentAudio.length>20) recentAudio.shift();
+}
+
+async function onReply(text,id,knownUrl){
+  lastReply={text,id,ts:Date.now()};
+  log("JARVIS: "+text);
+  holdStatus("NEW REPLY",false,8000);
+  if(shouldSkipAck(text)){ vlog({ev:"skip-ack",text}); return; }
+  const arrived=Date.now();
+  const primed=knownUrl||takeRecentAudio(text);
+  const urlP=primed?Promise.resolve(primed):waitForAudio(text, AUDIO_WAIT_MS);
+  return enqueueVoice(async token=>{
+    if(token!==voiceSeq || !canSpeak()) return;
+    if(!isAckText(text)) await playExclusiveCue("done", token);
+    if(token!==voiceSeq || !canSpeak() || !text) return;
+    let url=await urlP;
+    if(!url) url=takeRecentAudio(text);
+    if(token!==voiceSeq || !canSpeak()) return;
+    if(ttsAlready(text)){ vlog({ev:"drop-mp3",reason:"tts-already-before-play",text}); return; }
+    if(url){ if(await playExclusiveUrl(url, token)) return; }
+    if(token!==voiceSeq || !canSpeak()) return;
+    url=takeRecentAudio(text);
+    if(url){ if(await playExclusiveUrl(url, token)) return; }
+    const left=AUDIO_WAIT_MS-(Date.now()-arrived);
+    if(left>50){
+      url=await waitForAudio(text, left);
+      if(token!==voiceSeq || !canSpeak()) return;
+      if(url && !ttsAlready(text)){ if(await playExclusiveUrl(url, token)) return; }
+    }
+    if(token!==voiceSeq || !canSpeak() || ttsAlready(text)) return;
+    await playExclusiveTts(text, token);
+  });
+}
+
+
 
 /* ---------- unlock audio + speech on the first tap (Android/iOS autoplay rules) ---------- */
 let unlocked=false;
@@ -140,7 +417,7 @@ function showVoiceUnlock(){
 const vuBtn=$("#voice-unlock"); if(vuBtn) vuBtn.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();unlockAudio(); acquireWakeLock();});
 showVoiceUnlock();
 
-/* ---------- TTS for arbitrary replies ---------- */
+/* ---------- TTS voice ---------- */
 let ttsVoice=null;
 function pickVoice(){ const vs=speechSynthesis.getVoices(); if(!vs.length) return;
   for(const pref of C.TTS_VOICE_PREFERENCE){ const p=pref.toLowerCase();
@@ -149,13 +426,7 @@ function pickVoice(){ const vs=speechSynthesis.getVoices(); if(!vs.length) retur
     if(v){ ttsVoice=v; break; } }
   if(!ttsVoice) ttsVoice=vs.find(v=>/^en/i.test(v.lang))||vs[0];
   $("#gi-tts")&&($("#gi-tts").textContent = ("TTS: "+ttsVoice.name.replace(/Microsoft |Google | Online.*|\(.*\)/g,"")).slice(0,16).toUpperCase()); }
-if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; } else $("#gi-tts").textContent="NO TTS";
-function say(text){ if(muted||!("speechSynthesis" in window)||!text) return Promise.resolve();
-  return new Promise(res=>{ const u=new SpeechSynthesisUtterance(text); if(ttsVoice) u.voice=ttsVoice; u.pitch=C.TTS_PITCH; u.rate=C.TTS_RATE;
-    u.lang=(ttsVoice&&ttsVoice.lang)||"en-GB";
-    let done=false; const fin=()=>{ if(done) return; done=true; clearTimeout(guard); speaking=false;setBusy();res(); };
-    const guard=setTimeout(fin, 4000+text.length*120);   // Android sometimes never fires onend
-    u.onstart=()=>{speaking=true;setBusy();}; u.onend=u.onerror=fin; speechSynthesis.cancel(); speechSynthesis.speak(u); }); }
+if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; } else { const g=$("#gi-tts"); if(g) g.textContent="NO TTS"; }
 
 /* ---------- state helpers ---------- */
 let busyReq=false, listening=false, mode="idle";
@@ -328,43 +599,6 @@ function ntfyPayload(ev){
   if(!text&&!url) return null;
   return {id:String(data.id||data.time||text||url), text, isAudio, url};
 }
-const AUDIO_WAIT_MS=10000;
-const audioWaiters=new Map();
-const recentAudio=[];
-let replyAudio=null, speakGen=0, speakChain=Promise.resolve();
-function stopReplyAudio(){ speakGen++; const a=replyAudio; replyAudio=null; if(!a) return; try{ a.pause(); a.removeAttribute("src"); a.load(); }catch(e){} }
-function takeRecentAudio(text){ const now=Date.now(); for(let i=0;i<recentAudio.length;i++){ if(now-recentAudio[i].ts>AUDIO_WAIT_MS+2000){ recentAudio.splice(i,1); i--; continue; } if(recentAudio[i].text===text){ return recentAudio.splice(i,1)[0].url; } } return ""; }
-function waitForAudio(text){ const ready=takeRecentAudio(text); if(ready) return Promise.resolve(ready);
-  return new Promise(resolve=>{ const rec={}; rec.timer=setTimeout(()=>rec.finish(""),AUDIO_WAIT_MS);
-    rec.finish=url=>{ if(rec.done) return; rec.done=true; clearTimeout(rec.timer); const arr=audioWaiters.get(text)||[]; const i=arr.indexOf(rec); if(i>=0) arr.splice(i,1); if(!arr.length) audioWaiters.delete(text); resolve(url||""); };
-    const arr=audioWaiters.get(text)||[]; arr.push(rec); audioWaiters.set(text,arr); }); }
-function offerAudio(msg){ if(!msg||!msg.url) return; const arr=audioWaiters.get(msg.text); if(arr&&arr.length){ arr[0].finish(msg.url); return; } recentAudio.push({text:msg.text,url:msg.url,ts:Date.now()}); if(recentAudio.length>20) recentAudio.shift(); }
-function playUrl(url){ if(muted||!url) return Promise.resolve(false); stopReplyAudio();
-  return new Promise(res=>{ const a=new Audio(); a.preload="auto"; a.crossOrigin="anonymous"; let done=false;
-    const fin=ok=>{ if(done) return; done=true; clearTimeout(guard); if(replyAudio===a) replyAudio=null; speaking=false; setBusy(); res(!!ok); };
-    const guard=setTimeout(()=>fin(false),20000);
-    a.onended=()=>fin(true); a.onerror=()=>fin(false); a.onplaying=()=>{speaking=true;setBusy();};
-    hookMedia(a); replyAudio=a; a.src=url; const p=a.play(); if(p&&p.catch) p.catch(()=>fin(false)); }); }
-const ntfySeen=new Set((()=>{ try{ return JSON.parse(localStorage.getItem(LS_SEEN)||"[]"); }catch(e){ return []; } })());
-function rememberNtfy(id){ ntfySeen.add(id); lastSeenId=String(id); try{ localStorage.setItem(LS_SEEN,JSON.stringify([...ntfySeen].slice(-400))); }catch(e){} }
-async function onReply(text,id,knownUrl){
-  lastReply={text,id,ts:Date.now()};
-  log("JARVIS: "+text);
-  holdStatus("NEW REPLY",false,8000);
-  const gen=speakGen;
-  const run=async()=>{
-    await cue("done");
-    if(muted||!text||gen!==speakGen) return;
-    let url=knownUrl||takeRecentAudio(text);
-    if(!url) url=await waitForAudio(text);
-    if(gen!==speakGen||muted) return;
-    if(url){ if(await playUrl(url)) return; }
-    if(muted||gen!==speakGen) return;
-    await say(text);
-  };
-  speakChain=speakChain.then(run,run);
-  await speakChain;
-}
 function ingestNtfy(msg){
   if(!msg||ntfySeen.has(msg.id)) return null;
   rememberNtfy(msg.id);
@@ -506,7 +740,7 @@ async function sendRequest(text){
   if(!req){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the requests channel"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
-  cue("ack");
+  lastLocalAck=Date.now(); cue("ack");
   const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
   try{
     // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.
@@ -514,7 +748,7 @@ async function sendRequest(text){
     if(!r.ok) throw new Error("HTTP "+r.status);
     toast("SENT TO CHIEF OF STAFF"); log("Sent to Chief of Staff"); holdStatus("SENT TO CHIEF OF STAFF",false,5000);
   }catch(e){
-    toast("UPLINK ERROR"); log("Send failed — check the connection"); holdStatus("UPLINK ERROR",true,5000); cue("error");
+    toast("UPLINK ERROR"); log("Send failed — check the connection"); holdStatus("UPLINK ERROR",true,5000); speakLine("error");
   }finally{
     busyReq=false; setBusy(); if(prog) prog.style.width="60%";
   }
@@ -575,7 +809,7 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
     if(m==="command") $("#vb-input").value=(finalText+interim).trim();
     if(m==="wake"){ const all=(finalText+interim), w=C.WAKE_WORD.toLowerCase(), idx=all.toLowerCase().lastIndexOf(w);
       if(idx>=0 && ev.results[ev.results.length-1].isFinal){ const rest=all.slice(idx+w.length).replace(/^[\s,.!?]+/,"").trim(); finalText="";
-        if(rest.split(/\s+/).filter(Boolean).length>=2) sendRequest(rest); else { mode="handoff"; rec.abort(); cue("ready").then(()=>startRec("command")); } } } };
+        if(rest.split(/\s+/).filter(Boolean).length>=2) sendRequest(rest); else { mode="handoff"; rec.abort(); speakLine("ready").then(()=>startRec("command")); } } } };
   rec.onerror=e=>{ if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){ wakeArmed=false;
       if(m==="command" && !startRec.retried){ startRec.retried=true; askMic().then(ok=>{ if(ok){ micBlocked=false; setTimeout(()=>startRec("command"),250); } else { micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } }); return; }
       micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } };
@@ -603,7 +837,7 @@ bindSetup();
 /* ---------- boot (one click needed for sound + full screen) ---------- */
 async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) return; b.classList.add("hide"); acquireWakeLock();
   try{ if(!qs.has("nofs")) await document.documentElement.requestFullscreen(); }catch(e){}
-  log("System online"); weather(true); if(C.PLAY_STARTUP_GREETING) await cue("boot");
+  log("System online"); weather(true); if(C.PLAY_STARTUP_GREETING) await speakLine("boot");
   if(SR&&C.WAKE_WORD_ENABLED){ wakeArmed=true; startRec("wake"); } }
 $("#boot").addEventListener("click",boot);
 
@@ -615,7 +849,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={say,cue,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,markLocalAck:()=>{lastLocalAck=Date.now();},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

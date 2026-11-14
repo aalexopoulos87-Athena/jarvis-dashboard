@@ -1,5 +1,5 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v3";
+const VERSION = "jarvis-v4";
 const SHELL = [
   "./", "index.html", "config.js", "data.js", "data.json", "manifest.webmanifest",
   "assets/jarvis.css", "assets/jarvis.js", "assets/phone.css",

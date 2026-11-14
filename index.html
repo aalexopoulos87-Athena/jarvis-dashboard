@@ -236,6 +236,12 @@
 </div>
 <script src="assets/jarvis.js"></script>
 <script>
+/* Setup opener that works even if an older cached script is running */
+(function(){
+  function openS(e){ if(e) e.preventDefault(); if(window.JARVIS&&JARVIS.openSetup){ JARVIS.openSetup(); return; } var s=document.getElementById("setup"); if(s) s.hidden=false; }
+  ["m-gear","dock-settings"].forEach(function(id){ var el=document.getElementById(id); if(el){ el.onclick=openS; } });
+  var pill=document.querySelector(".status-pill"); if(pill){ pill.style.cursor="pointer"; pill.addEventListener("click",openS); }
+})();
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   let hadCtl = !!navigator.serviceWorker.controller, reloaded = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadCtl && !reloaded) { reloaded = true; location.reload(); } });

@@ -518,14 +518,17 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
     if(m==="wake"){ const all=(finalText+interim), w=C.WAKE_WORD.toLowerCase(), idx=all.toLowerCase().lastIndexOf(w);
       if(idx>=0 && ev.results[ev.results.length-1].isFinal){ const rest=all.slice(idx+w.length).replace(/^[\s,.!?]+/,"").trim(); finalText="";
         if(rest.split(/\s+/).filter(Boolean).length>=2) sendRequest(rest); else { mode="handoff"; rec.abort(); cue("ready").then(()=>startRec("command")); } } } };
-  rec.onerror=e=>{ if(e.error==="not-allowed"||e.error==="service-not-allowed"){ wakeArmed=false; micBlocked=true; toast("MICROPHONE BLOCKED - ALLOW MIC ACCESS"); } };
+  rec.onerror=e=>{ if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){ wakeArmed=false;
+      if(m==="command" && !startRec.retried){ startRec.retried=true; askMic().then(ok=>{ if(ok){ micBlocked=false; setTimeout(()=>startRec("command"),250); } else { micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } }); return; }
+      micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } };
   rec.onend=()=>{ listening=false;
     if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle"; if(t) sendRequest(t); }
     if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ setTimeout(()=>{ if(mode!=="command"&&mode!=="handoff") startRec("wake"); },speaking?1500:300); }
     else if(mode!=="handoff") mode="idle";
     micUI(); };
   try{ rec.start(); }catch(e){} }
-function talk(){ try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio(); startRec("command"); }
+async function askMic(){ try{ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return false; const st=await navigator.mediaDevices.getUserMedia({audio:true}); st.getTracks().forEach(t=>t.stop()); return true; }catch(err){ return false; } }
+function talk(){ try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio(); startRec.retried=false; setTimeout(()=>startRec("command"),120); }
 $("#mic-btn").addEventListener("click",talk); $("#vb-mic").addEventListener("click",talk);
 $("#dock-core").addEventListener("click",e=>{e.preventDefault(); talk();});
 $("#ring").addEventListener("click",()=>{ if(document.body.classList.contains("phone")) talk(); });

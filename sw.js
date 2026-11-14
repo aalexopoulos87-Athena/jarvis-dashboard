@@ -1,8 +1,8 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v8";
+const VERSION = "jarvis-v9";
 const SHELL = [
   "./", "index.html", "config.js", "data.js", "data.json", "manifest.webmanifest",
-  "assets/app-v8.css", "assets/app-v8.js", "assets/phone-v8.css",
+  "assets/app-v9.css", "assets/app-v9.js", "assets/phone-v9.css",
   "assets/fonts/Orbitron.ttf", "assets/fonts/Rajdhani-Regular.ttf", "assets/fonts/Rajdhani-Medium.ttf",
   "assets/fonts/Rajdhani-SemiBold.ttf", "assets/fonts/Rajdhani-Bold.ttf",
   "assets/icons/icon-192.png", "assets/icons/icon-512.png", "assets/icons/icon-maskable-192.png",

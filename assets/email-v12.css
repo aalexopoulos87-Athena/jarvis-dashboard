@@ -1,4 +1,5 @@
-/* v12 holographic Gmail panel — pale yellow-gold film palette, sphere stays visible */
+/* v12.2 holographic Gmail panel — pale yellow-gold film palette.
+   Slides up OVER the lower/central sphere as a translucent gold layer; the sphere stays visible and reactive through/around it. */
 :root{
   --gold:#f3d27a; --gold-hot:#ffefb8; --gold-core:#fff7d8; --gold-mid:#e0bc6a; --gold-dim:#c9a456;
   --gold-glow:0 0 8px rgba(255,239,184,.45),0 0 22px rgba(243,210,122,.22);
@@ -17,20 +18,30 @@
 #inbox-btn svg{width:16px;height:16px;fill:none;stroke:var(--gold);stroke-width:1.8;stroke-linejoin:round}
 #inbox-btn:hover,#inbox-btn:active{border-color:var(--gold-hot);color:var(--gold-core)}
 
+/* desktop stage (1920x1080): over the lower half of the 700px sphere at 653,110 */
 #email-panel{
-  position:absolute; left:500px; top:818px; width:920px; height:250px; z-index:12;
+  position:absolute; left:603px; top:440px; width:800px; height:360px; z-index:12;
   pointer-events:none;
+  opacity:0; transform:translateY(64px) scale(.97); transform-origin:50% 100%;
+  transition:transform 400ms cubic-bezier(.16,1,.3,1), opacity 400ms ease-out;
+  will-change:transform,opacity;
 }
-#email-panel:not([hidden]){pointer-events:auto}
+#email-panel.ep-open{opacity:1; transform:none}
+#email-panel.ep-closing{transition:transform 380ms cubic-bezier(.4,0,.7,.2), opacity 380ms ease-in}
+#email-panel.ep-open,#email-panel.ep-closing{pointer-events:auto}
 #email-panel[hidden]{display:none!important}
 #email-panel .ep-frame{
   position:relative; height:100%; overflow:hidden;
-  border:1.5px solid rgba(243,210,122,.6); border-radius:14px;
+  border:1.5px solid rgba(243,210,122,.62); border-radius:14px;
+  /* translucent holographic glass: thin at the top so the core shows through, denser lower down for legibility */
   background:
-    linear-gradient(180deg,rgba(36,28,8,.55) 0%,rgba(8,14,22,.78) 40%,rgba(4,10,18,.86) 100%);
-  box-shadow:0 0 16px rgba(255,239,184,.2),0 0 40px rgba(243,210,122,.12),inset 0 0 28px rgba(243,210,122,.08);
+    radial-gradient(120% 60% at 50% 0%,rgba(255,239,184,.10),transparent 60%),
+    linear-gradient(180deg,rgba(36,28,8,.24) 0%,rgba(14,14,12,.36) 30%,rgba(8,12,16,.56) 44%,rgba(5,9,15,.9) 56%,rgba(4,8,14,.95) 100%);
+  box-shadow:0 0 16px rgba(255,239,184,.22),0 0 40px rgba(243,210,122,.14),inset 0 0 28px rgba(243,210,122,.10),inset 0 1px 0 rgba(255,247,216,.25);
   color:var(--gold-core);
+  text-shadow:0 1px 3px rgba(0,0,0,.85);
 }
+
 #email-panel .ep-frame::before{
   content:""; position:absolute; inset:0; pointer-events:none; z-index:3;
   background:repeating-linear-gradient(180deg,transparent 0 2px,rgba(255,247,216,.025) 2px 3px);
@@ -106,22 +117,32 @@
 #email-panel.loading .ep-frame{box-shadow:0 0 22px rgba(255,239,184,.35),0 0 48px rgba(243,210,122,.18),inset 0 0 28px rgba(243,210,122,.1)}
 #email-panel.timeout #ep-status,#email-panel.error #ep-status{color:#e0bc6a}
 
-/* Phone: sit below the sphere, never cover it */
+/* Phone */
 @media (max-width: 899px) and (orientation: portrait){
   #inbox-btn{
     position:relative; left:auto; top:auto;
     width:min(84vw,340px); margin:8px auto 0; height:36px;
   }
+  /* v12.2: slide up over the lower and central sphere (the top of the sphere stays clear, the core shows through) */
   #email-panel{
-    position:relative; left:auto; top:auto;
-    width:min(94vw,520px); height:auto; max-height:min(38vh,340px);
-    margin:8px auto 0; z-index:5;
+    position:absolute; left:0; right:0; margin:0 auto;
+    top:calc(4px + min(88vw,44vh,440px) * .40);
+    width:min(94vw,520px); height:min(52vh,440px); max-height:none;
+    z-index:12;
   }
-  #email-panel .ep-frame{height:min(38vh,340px)}
+  #email-panel .ep-frame{height:100%}
 
   .ep-kicker{display:none}
   .ep-head{height:auto;min-height:40px;flex-wrap:nowrap;padding-right:8px}
   .ep-head button{padding:0 8px;letter-spacing:1px}
   #ep-title{font-size:14px;letter-spacing:2px}
   body.email-open #pillbox, body.email-open #m-hint, body.email-open #awake-badge{display:none!important}
+  body.email-open #inbox-btn{visibility:hidden}
 }
+
+/* reduced motion: no slide, quick fade only; shimmer becomes a gentle glow pulse */
+@media (prefers-reduced-motion: reduce){
+  #email-panel,#email-panel.ep-closing{transform:none!important; transition:opacity 120ms linear}
+  .ep-shimmer i{animation:epPulse 2.4s ease-in-out infinite; left:0; width:100%; transform:none}
+}
+@keyframes epPulse{0%,100%{opacity:.15}50%{opacity:.55}}

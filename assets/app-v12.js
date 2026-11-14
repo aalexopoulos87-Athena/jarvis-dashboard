@@ -454,7 +454,9 @@ function offerAudio(msg){
 
 /* ---------- v12 holographic inbox ---------- */
 const EMAIL_PREFIX="JARVIS_EMAIL_JSON:";
-let EMAIL_WAIT_MS=18000;
+let EMAIL_WAIT_MS=45000;   // v12.2: real routine replies take ~15-25 s; was 18 s
+const EMAIL_SLIDE_MS=400;   // v12.2: slide in/out over the sphere
+let emailHideTimer=null;
 let emailTimer=null, emailGen=0, emailCache={list:null, open:Object.create(null)};
 
 function isEmailJson(text){ return String(text||"").trim().startsWith(EMAIL_PREFIX); }
@@ -482,16 +484,28 @@ function fmtWhen(s){
   try{ return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); }
   catch(e){ return d.toISOString(); }
 }
+function emailReducedMotion(){ try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } }
 function showEmailPanel(){
   const p=$("#email-panel"); if(!p) return;
-  p.hidden=false;
+  clearTimeout(emailHideTimer); emailHideTimer=null;
+  p.classList.remove("ep-closing");
   document.body.classList.add("email-open");
+  if(p.hidden){
+    p.hidden=false;
+    void p.offsetWidth;                       // commit the off-screen start state so the slide runs
+    try{ p.scrollIntoView({block:"nearest"}); }catch(e){}
+  }
+  p.classList.add("ep-open");
 }
 function closeInbox(){
   emailGen++;
   clearTimeout(emailTimer); emailTimer=null;
-  const p=$("#email-panel"); if(p) p.hidden=true;
-  document.body.classList.remove("email-open");
+  const p=$("#email-panel"); if(!p) return;
+  if(p.hidden){ document.body.classList.remove("email-open"); return; }
+  p.classList.remove("ep-open"); p.classList.add("ep-closing");
+  clearTimeout(emailHideTimer);
+  emailHideTimer=setTimeout(()=>{ emailHideTimer=null; p.hidden=true; p.classList.remove("ep-closing");
+    document.body.classList.remove("email-open"); }, emailReducedMotion()?140:EMAIL_SLIDE_MS+20);
 }
 function setEmailMode(mode, status){
   const p=$("#email-panel"); if(!p) return;

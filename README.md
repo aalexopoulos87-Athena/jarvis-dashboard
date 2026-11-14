@@ -13,6 +13,7 @@ Tap once to initialize (enables sound), allow the microphone when asked, and all
 
 Requests you type or speak are sent to Chief of Staff. Replies appear in the activity log and are read aloud in a calm British voice after a short JARVIS cue. The systems pill shows **CONNECTED** when the webhook is saved and the replies feed is open.
 
+- Keep screen awake is on by default (toggle it in **SETUP**) so the phone does not sleep while the app is open and replies can be spoken. If you leave the app, missed replies are spoken when you come back.
 - Portrait phones get a stacked layout (ring, status, swipeable cards, pinned input bar with a big mic button).
 - Landscape and desktop show the full HUD.
 - Works offline for the app shell, fonts and voice clips (weather, sending requests, and speech input need internet).

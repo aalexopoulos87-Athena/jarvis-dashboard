@@ -16,8 +16,8 @@
 <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="assets/app-v6.css">
-<link rel="stylesheet" href="assets/phone-v6.css">
+<link rel="stylesheet" href="assets/app-v7.css">
+<link rel="stylesheet" href="assets/phone-v7.css">
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -82,6 +82,7 @@
     <div class="kv"><span>UPTIME</span><b id="gi-up">00:00:00</b></div>
     <div class="kv"><span>UPLINK</span><b id="gi-link">NOT CONNECTED</b></div>
     <div class="kv ok"><i></i><span id="gi-net">ONLINE</span></div>
+    <div class="kv" id="awake-row"><span>SCREEN</span><b id="gi-awake">STANDBY</b></div>
   </section>
   <section id="p-net" class="panel">
     <div class="ph">VOICE</div>
@@ -134,6 +135,7 @@
     <div class="status-pill"><span class="dot"></span><span id="status-txt">ALL SYSTEMS OPERATIONAL</span><i class="pl"></i></div>
   </div>
   <div id="m-hint">TAP THE MIC OR THE RING TO TALK</div>
+  <div id="awake-badge" hidden>STANDBY</div>
   </div>
 
   <div id="g-left" class="fgauge sm">
@@ -222,6 +224,7 @@
       <label class="su-l" id="su-req-row">REQUESTS CHANNEL<input id="su-req" type="password" spellcheck="false" autocomplete="off" placeholder="Filled by your setup link"></label>
       <label class="su-l" id="su-topic-row">REPLIES CHANNEL<input id="su-topic" type="password" spellcheck="false" autocomplete="off" placeholder="Filled by your setup link"></label>
       <label class="su-l" id="su-city-row" hidden>WEATHER CITY<input id="su-city" type="text" spellcheck="false" autocomplete="off" placeholder="Empty = use this device's location"></label>
+      <label class="su-toggle" id="su-awake-row"><input id="su-awake" type="checkbox" checked>KEEP SCREEN AWAKE</label>
       <div class="su-actions">
         <button type="button" id="su-cancel">CANCEL</button>
         <button type="submit" id="su-save">SAVE</button>
@@ -234,7 +237,7 @@
   <div id="boot"><div class="boot-in"><div class="boot-t">JARVIS</div><div class="boot-s">TAP ANYWHERE TO INITIALIZE</div><div class="boot-bar"><i></i></div></div></div>
 </div>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
-<script src="assets/app-v6.js"></script>
+<script src="assets/app-v7.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
 (function(){

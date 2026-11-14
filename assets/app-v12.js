@@ -503,9 +503,13 @@ function closeInbox(){
   const p=$("#email-panel"); if(!p) return;
   if(p.hidden){ document.body.classList.remove("email-open"); return; }
   p.classList.remove("ep-open"); p.classList.add("ep-closing");
+  const done=()=>{ clearTimeout(emailHideTimer); emailHideTimer=null;
+    if(!p.classList.contains("ep-closing")) return;          // reopened meanwhile
+    p.hidden=true; p.classList.remove("ep-closing"); document.body.classList.remove("email-open"); };
+  if(!p._epEnd){ p._epEnd=e=>{ if(e.target===p && e.propertyName==="transform" && p._epDone) p._epDone(); }; p.addEventListener("transitionend",p._epEnd); }
+  p._epDone=done;
   clearTimeout(emailHideTimer);
-  emailHideTimer=setTimeout(()=>{ emailHideTimer=null; p.hidden=true; p.classList.remove("ep-closing");
-    document.body.classList.remove("email-open"); }, emailReducedMotion()?140:EMAIL_SLIDE_MS+20);
+  emailHideTimer=setTimeout(done, emailReducedMotion()?140:EMAIL_SLIDE_MS+250);   // fallback if transitionend never fires
 }
 function setEmailMode(mode, status){
   const p=$("#email-panel"); if(!p) return;

@@ -1235,6 +1235,7 @@ function openSetup(){
     if(show&&city){ try{ const l=JSON.parse(localStorage.getItem("jarvis_loc")||"null"); city.value=(l&&!l.auto&&l.name)?l.name:""; }catch(e){ city.value=""; } } }
   const aw=$("#su-awake"); if(aw) aw.checked=keepAwakeOn();
   const wk=$("#su-wake"); if(wk) wk.checked=!!C.WAKE_WORD_ENABLED;
+  const ll=$("#su-launch"); if(ll) ll.checked=launchListenPref();
   ov.hidden=false;
 }
 function closeSetup(){ const ov=$("#setup"); if(ov) ov.hidden=true; }
@@ -1274,13 +1275,14 @@ function bindSetup(){
   const ov=$("#setup"); if(ov) ov.addEventListener("click",e=>{ if(e.target===ov) closeSetup(); });
   const aw=$("#su-awake"); if(aw){ aw.checked=keepAwakeOn(); aw.addEventListener("change",()=>applyKeepAwake(!!aw.checked)); }
   const wk=$("#su-wake"); if(wk){ wk.addEventListener("change",()=>setWakeWord(!!wk.checked,true)); }
+  const ll=$("#su-launch"); if(ll){ ll.checked=launchListenPref(); ll.addEventListener("change",()=>{ try{ localStorage.setItem(LS_LAUNCH,ll.checked?"1":"0"); }catch(e){} log(ll.checked?"Listen on open: on":"Listen on open: off"); }); }
   startReplies();
 }
 
 /* ---------- speech recognition: mic tile + "Hey Jarvis" wake word (v12.4) ---------- */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null, wakeArmed=false, micBlocked=false, booted=false;
 const cap=s=>s.toUpperCase();
-const LS_WAKE="jarvis_wake_word";
+const LS_WAKE="jarvis_wake_word", LS_LAUNCH="jarvis_launch_listen";
 const WAKE_LABEL="HEY JARVIS";
 // "hey jarvis" and close mishearings anywhere in an utterance; bare "jarvis" only at the start of one.
 const WAKE_NAME="(?:jarvis|jarviss|jarvas|jarvus|jervis|javis|jarvi)";
@@ -1323,7 +1325,7 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
   if(m==="wake" && (!C.WAKE_WORD_ENABLED || !wakeArmed || document.hidden)) return;
   mode=m; try{ rec&&rec.abort(); }catch(e){}
   const r=new SR(); rec=r; r.lang="en-GB"; r.interimResults=true; r.continuous=(m==="wake"); let finalText="", heard=false;
-  r.onstart=()=>{ if(rec!==r) return; listening=true; micUI(); };
+  r.onstart=()=>{ if(rec!==r) return; listening=true; startRec.okAt=Date.now(); micUI(); };
   r.onresult=ev=>{ if(rec!==r) return; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
     micLevel=1; heard=true; wakeFails=0; clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
     if(m==="command") $("#vb-input").value=(finalText+interim).trim();
@@ -1374,6 +1376,41 @@ async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) retu
   if(SR&&C.WAKE_WORD_ENABLED){ wakeArmed=true; if(mode==="idle") startRec("wake"); } micUI(); }
 $("#boot").addEventListener("click",boot);
 
+/* ---------- launch-to-listen v12.5: ?listen=1, the "Talk to JARVIS" app shortcut, or the SETUP option ---------- */
+function launchListenPref(){ try{ return localStorage.getItem(LS_LAUNCH)==="1"; }catch(e){ return false; } }
+const LAUNCH_FROM_URL=/^(1|true|yes|on)$/i.test(qs.get("listen")||"") || /(^#|&)listen\b/.test(location.hash||"");
+const WANT_LISTEN=LAUNCH_FROM_URL || (launchListenPref() && /^(pwa|shortcut)$/.test(qs.get("source")||""));
+let launchStarted=0;
+function clearListenParam(){ try{ const u=new URL(location.href); if(!u.searchParams.has("listen") && !/listen/.test(u.hash)) return;
+  u.searchParams.delete("listen"); u.hash=u.hash.replace(/(^#|&)listen\b(=[^&]*)?/,"$1").replace(/^#&?$/,""); history.replaceState(null,"",u.toString()); }catch(e){} }
+// Chrome: an installed PWA on Android may play sound without a tap; a new AudioContext reports "running" when it can.
+async function audioAllowed(){ const ac=audioCtx(); if(!ac) return true; if(ac.state==="running") return true;
+  try{ await Promise.race([ac.resume(), new Promise(r=>setTimeout(r,350))]); }catch(e){}
+  return ac.state==="running"; }
+async function micPermission(){ try{ const st=await navigator.permissions.query({name:"microphone"}); return st.state; }catch(e){ return "unknown"; } }
+function hideTapTalk(){ const t=$("#tap-talk"); if(t) t.hidden=true; document.body.classList.remove("tap-talk"); }
+function showTapTalk(why){ const t=$("#tap-talk"); if(!t) return; t.hidden=false; document.body.classList.add("tap-talk");
+  const s=$("#tt-sub"); if(s) s.textContent = why==="mic-denied"?"MICROPHONE IS BLOCKED - CHROME SITE SETTINGS > MICROPHONE":"ONE TAP TO START LISTENING";
+  window.__jarvisTapTalk=(window.__jarvisTapTalk||0)+1; log("Tap to talk ("+why+")"); }
+// straight into LISTENING: chime, sphere to LISTENING, "I'm listening", then capture the request
+function listenNow(){ hideTapTalk(); launchStarted=Date.now(); wakeQuietUntil=Date.now()+1500;
+  try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio();
+  wakeChime(); mode="handoff"; listening=true; micUI();
+  speakLine("ready").then(()=>{ startRec.retried=false; startRec("command");
+    const t0=launchStarted; setTimeout(()=>{ if(launchStarted===t0 && !(startRec.okAt>=t0)) showTapTalk("no-mic-start"); },2500); }); }
+async function launchListen(){ clearListenParam();
+  const b=$("#boot"); if(b) b.classList.add("hide"); booted=true; acquireWakeLock();
+  log("System online"); log("Opened to listen"); weather(false);
+  if(SR&&C.WAKE_WORD_ENABLED) wakeArmed=true;
+  if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME"); return; }
+  const [mic,audioOk]=await Promise.all([micPermission(), audioAllowed()]);
+  window.__jarvisLaunch={mic,audioOk};
+  if(mic==="denied"){ showTapTalk("mic-denied"); return; }
+  if(mic==="granted" && audioOk) return listenNow();
+  showTapTalk(audioOk?"mic-prompt":"audio-gesture"); }
+(function(){ const t=$("#tap-talk"); if(!t) return;
+  t.addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); unlockAudio(); acquireWakeLock(); micBlocked=false; listenNow(); }); })();
+
 /* ---------- phone: card dots for the swipeable panels ---------- */
 (function(){ const wrap=$("#m-cards"), dots=$("#m-dots"); if(!wrap||!dots) return; const cards=[...wrap.children];
   dots.innerHTML=cards.map((_,i)=>`<i data-i="${i}"></i>`).join("");
@@ -1382,7 +1419,8 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
+window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

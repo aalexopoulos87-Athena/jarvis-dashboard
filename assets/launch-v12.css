@@ -1,0 +1,12 @@
+/* v12.5 launch-to-listen: big "Tap to talk" when Chrome needs one tap for the mic or sound */
+#tap-talk{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+  background:radial-gradient(circle at 50% 46%,rgba(2,16,28,.55) 0,rgba(1,5,12,.92) 62%);border:0;padding:0;margin:0;cursor:pointer;
+  color:#e6f8ff;font-family:Rajdhani,sans-serif;-webkit-tap-highlight-color:transparent}
+#tap-talk[hidden]{display:none!important}
+#tap-talk .tt-ring{width:min(58vw,300px);height:min(58vw,300px);border-radius:50%;display:grid;place-items:center;
+  border:3px solid rgba(255,196,77,.85);box-shadow:0 0 28px rgba(255,196,77,.45),inset 0 0 40px rgba(255,196,77,.18);animation:ttpulse 1.8s ease-in-out infinite}
+#tap-talk .tt-ring svg{width:38%;height:38%;fill:none;stroke:#ffd27a;stroke-width:1.6;stroke-linecap:round}
+#tap-talk .tt-t{font-family:Orbitron,Rajdhani,sans-serif;font-weight:700;font-size:clamp(26px,7vw,44px);letter-spacing:.28em;text-shadow:0 0 14px rgba(255,196,77,.7)}
+#tap-talk .tt-s{font-size:clamp(12px,3.4vw,16px);font-weight:700;letter-spacing:.22em;color:#ffd27a;opacity:.9;max-width:86vw;text-align:center}
+@keyframes ttpulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.06);opacity:1}}
+@media (prefers-reduced-motion:reduce){#tap-talk .tt-ring{animation:none}}

@@ -563,13 +563,17 @@ function frame(now) {
   // Film: outer size stays constant; fragments shimmer/brighten with the voice. No whole-sphere balloon.
   bloom.scale.set(1.18, 1.18, 1);
   // Core flare: the inner glow swells and whitens on every word (sized to read at phone size), outer net fixed.
-  bloom.material.opacity = 0.20 + 0.42 * F + 0.06 * vs.speak;
-  const gs = 0.46 * (1 + 1.25 * F + 0.08 * vs.speak);
+  // v12.10 (owner: "the middle should visibly oscillate while he speaks"): besides the per-word onset flares, the core now
+  // follows the speech envelope directly (V.env, ~30 ms attack), so it pulses on every syllable on phone and desktop.
+  const E = V.env * vs.speak;
+  bloom.material.opacity = Math.min(0.95, 0.20 + 0.50 * F + 0.22 * E + 0.06 * vs.speak);
+  const gs = 0.46 * (1 + 1.45 * F + 0.85 * E + 0.08 * vs.speak);
   coreGlow.scale.set(gs, gs, 1);
-  const hs = 0.18 * (1 + 1.9 * F);
+  const hs = 0.18 * (1 + 2.3 * F + 1.6 * E);
   coreHot.scale.set(hs, hs, 1);
-  coreGlow.material.opacity = Math.min(1, 0.30 + 0.70 * F + 0.05 * vs.speak);
-  coreHot.material.opacity = Math.min(1, 0.62 + 0.38 * Math.min(1, F * 1.4 + 0.15 * vs.speak));
+  coreGlow.material.opacity = Math.min(1, 0.30 + 0.70 * F + 0.30 * E + 0.05 * vs.speak);
+  coreHot.material.opacity = Math.min(1, 0.62 + 0.38 * Math.min(1, F * 1.4 + 0.8 * E + 0.15 * vs.speak));
+  window.__jarvisCore = { gs: gs, hs: hs, E: E, F: F };   // QA probe
 
   for (let i = 0; i < rings.length; i++) {
     const r = rings[i];

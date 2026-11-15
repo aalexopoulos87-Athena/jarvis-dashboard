@@ -1,0 +1,65 @@
+/* v12.10 conversation history (CHAT): same pale-gold holographic layer as the inbox and to-do panels.
+   Requests on the right, JARVIS on the left, links tappable. Stored only on this device. */
+#gold-btns{display:contents}
+#chat-btn{
+  position:absolute; left:1102px; top:808px; z-index:8; width:88px; height:32px;
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  font-family:Rajdhani; font-weight:700; font-size:12px; letter-spacing:2.5px; color:var(--gold-hot,#ffefb8);
+  border:1px solid rgba(243,210,122,.55); border-radius:10px;
+  background:linear-gradient(180deg,rgba(40,30,10,.55),rgba(10,14,20,.7));
+  box-shadow:0 0 8px rgba(255,239,184,.45),0 0 22px rgba(243,210,122,.22); cursor:pointer; touch-action:manipulation;
+}
+#inbox-btn{width:254px}
+#chat-btn svg{width:16px;height:16px;fill:none;stroke:var(--gold,#f3d27a);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+#chat-btn:hover,#chat-btn:active{border-color:var(--gold-hot,#ffefb8);color:var(--gold-core,#fff7d8)}
+#chat-new{position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:50%; background:var(--gold-hot,#ffefb8);
+  box-shadow:0 0 6px #fff7d8,0 0 14px rgba(255,239,184,.9); animation:epUnread 2.4s ease-in-out infinite}
+#chat-new[hidden]{display:none}
+
+#chat-panel{
+  position:absolute; left:603px; top:440px; width:800px; height:360px; z-index:13;
+  pointer-events:none; opacity:0; transform:translateY(64px) scale(.97); transform-origin:50% 100%;
+  transition:transform 400ms cubic-bezier(.16,1,.3,1), opacity 400ms ease-out; will-change:transform,opacity;
+}
+#chat-panel.ch-open{opacity:1; transform:none; pointer-events:auto}
+#chat-panel.ch-closing{transition:transform 380ms cubic-bezier(.4,0,.7,.2), opacity 380ms ease-in; pointer-events:auto}
+#chat-panel[hidden]{display:none!important}
+#chat-panel .ep-frame{
+  position:relative; height:100%; overflow:hidden; display:flex; flex-direction:column;
+  border:1.5px solid rgba(243,210,122,.62); border-radius:14px;
+  background:radial-gradient(120% 60% at 50% 0%,rgba(255,239,184,.10),transparent 60%),
+    linear-gradient(180deg,rgba(30,24,8,.62) 0%,rgba(12,13,12,.82) 22%,rgba(6,10,15,.92) 40%,rgba(4,8,14,.96) 100%);
+  box-shadow:0 0 16px rgba(255,239,184,.22),0 0 40px rgba(243,210,122,.14),inset 0 0 28px rgba(243,210,122,.10),inset 0 1px 0 rgba(255,247,216,.25);
+  color:var(--gold-core,#fff7d8); text-shadow:0 1px 3px rgba(0,0,0,.85);
+}
+#chat-panel .ep-frame::after{content:""; position:absolute; left:18px; right:18px; top:-1px; height:2px; border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--gold-hot,#ffefb8) 18%,rgba(243,210,122,.3) 60%,transparent); box-shadow:0 0 10px rgba(255,239,184,.6)}
+#chat-panel .ep-head{flex:none}
+#ch-list{position:relative; z-index:4; flex:1; min-height:0; overflow:auto; margin:0; padding:10px 14px 14px; list-style:none;
+  display:flex; flex-direction:column; gap:8px; scrollbar-width:thin; overscroll-behavior:contain}
+#ch-list .ch-day{align-self:center; font-size:10.5px; font-weight:700; letter-spacing:2.5px; color:var(--gold-dim,#c9a456); margin:6px 0 0}
+#ch-list .ch-msg{max-width:82%; padding:7px 11px 6px; border-radius:12px; font-size:14px; line-height:1.4; white-space:pre-wrap; overflow-wrap:anywhere}
+#ch-list .ch-msg time{display:block; font-size:10px; letter-spacing:1.5px; opacity:.6; margin-top:3px}
+#ch-list .ch-you{align-self:flex-end; color:#e8f6ff; border:1px solid rgba(120,200,255,.35); background:rgba(40,120,190,.16); border-bottom-right-radius:4px}
+#ch-list .ch-you time{text-align:right}
+#ch-list .ch-jarvis{align-self:flex-start; color:var(--gold-core,#fff7d8); border:1px solid rgba(243,210,122,.42); background:rgba(243,210,122,.08);
+  box-shadow:inset 2px 0 0 var(--gold,#f3d27a); border-bottom-left-radius:4px}
+#ch-list a{color:var(--gold-hot,#ffefb8); text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere}
+#ch-list .ch-you a{color:#bfe6ff}
+#ch-list .ch-empty{align-self:center; margin:auto; color:var(--gold-mid,#e0bc6a); letter-spacing:2px; font-size:12px; text-align:center}
+#log a{color:inherit; text-decoration:underline}
+
+@media (max-width: 899px) and (orientation: portrait){
+  #gold-btns{display:flex; justify-content:center; gap:8px; width:min(84vw,340px); margin:8px auto 0}
+  #gold-btns #inbox-btn{flex:1; width:auto; margin:0}
+  #chat-btn{position:relative; left:auto; top:auto; width:96px; height:36px; flex:none}
+  #chat-panel{position:absolute; left:0; right:0; margin:0 auto; top:calc(4px + min(88vw,44vh,440px) * .40);
+    width:min(94vw,520px); height:min(52vh,440px); z-index:13}
+  #chat-panel .ep-kicker{display:none}
+  body.chat-open #pillbox, body.chat-open #m-hint, body.chat-open #awake-badge{display:none!important}
+  body.todo-open #chat-btn, body.email-open #chat-btn{visibility:hidden}
+}
+@media (prefers-reduced-motion: reduce){
+  #chat-panel,#chat-panel.ch-closing{transform:none!important; transition:opacity 120ms linear}
+  #chat-new{animation:none}
+}

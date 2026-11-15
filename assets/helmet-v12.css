@@ -158,3 +158,38 @@ body.convo:not(.listening) #holo-helm{ opacity:.72; }
 }
 @keyframes hhConvo{ 0%,100%{ box-shadow:0 0 0 2px rgba(73,210,255,.45), 0 0 12px rgba(26,143,232,.6); } 50%{ box-shadow:0 0 0 4px rgba(73,210,255,.75), 0 0 26px rgba(26,143,232,1); } }
 @media (prefers-reduced-motion:reduce){ #vb-mic.convo, #mic-btn.convo{ animation:none; } }
+
+/* v12.10 mute: conversation stays open, mic closed. Helm turns to a dim steel outline with a red-amber "MIC MUTED" tag and no reactions;
+   the mute button (only during a conversation) sits next to the mic. */
+#holo-helm.muted .hh-svg{ filter:grayscale(.85) brightness(.62); }
+#holo-helm.muted .hh-glow{ opacity:.25; animation:none; }
+#holo-helm.muted .hh-eyes polygon{ fill:#ffb36b !important; opacity:.55; animation:none !important; }
+#holo-helm.muted .hh-band, #holo-helm.muted .hh-rings i{ animation:none !important; opacity:0; }
+#holo-helm.muted::after{
+  content:"MIC MUTED"; position:absolute; left:50%; bottom:-14px; transform:translateX(-50%); white-space:nowrap;
+  font:700 9px/1.6 Rajdhani,Orbitron,sans-serif; letter-spacing:.18em; color:#ffd2a8;
+  padding:0 7px; border-radius:8px; border:1px solid rgba(255,140,90,.65); background:rgba(40,10,4,.6);
+  box-shadow:0 0 8px rgba(255,120,70,.45);
+}
+body.convo-muted #holo-helm{ opacity:.9; }
+#vb-mute{ display:none; cursor:pointer; touch-action:manipulation; background:rgba(1,8,18,.55); border:1px solid rgba(73,210,255,.45); color:#bff0ff;
+  border-radius:50%; place-items:center; box-shadow:0 0 10px rgba(26,143,232,.45); padding:0; }
+body.convo #vb-mute{ display:grid; }
+#vb-mute svg{ width:20px; height:22px; fill:none; stroke:#bff0ff; stroke-width:1.7; stroke-linecap:round; }
+#vb-mute .slash{ opacity:0; stroke:#ffb36b; }
+#vb-mute span{ font:700 7.5px/1 Rajdhani,sans-serif; letter-spacing:.14em; margin-top:-2px; }
+#vb-mute.on{ border-color:#ff9a62; color:#ffd2a8; box-shadow:0 0 12px rgba(255,120,70,.6), inset 0 0 10px rgba(255,120,70,.25); }
+#vb-mute.on svg{ stroke:#ffd2a8; } #vb-mute.on .slash{ opacity:1; }
+/* desktop stage: right of the mic, input shortened while a conversation is open */
+#vb-mute{ position:absolute; left:84px; top:84px; width:40px; height:40px; grid-template-rows:auto auto; }
+body.convo #vb-mute ~ #vb-input{ }
+@media (max-width:899px) and (orientation:portrait){
+  #vb-mute{ position:static; flex:none; order:2; width:50px; height:50px; }
+  #vb-mute svg{ width:18px; height:20px; }
+}
+
+/* v12.10: JARVIS talking in a conversation -> eyes flare and glow breathes with his voice (--hh-jv from the output analyser) */
+#holo-helm{ --hh-jv:0; }
+#holo-helm.jv-talk .hh-eyes polygon{ opacity:calc(.55 + var(--hh-jv) * .45); filter:drop-shadow(0 0 calc(1px + var(--hh-jv) * 7px) #e6f8ff); }
+#holo-helm.jv-talk .hh-glow{ opacity:calc(.45 + var(--hh-jv) * .55); transform:scale(calc(1 + var(--hh-jv) * .22)); }
+#holo-helm.jv-talk.muted .hh-svg{ filter:grayscale(.6) brightness(calc(.7 + var(--hh-jv) * .4)); }

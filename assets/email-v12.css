@@ -146,3 +146,43 @@
   .ep-shimmer i{animation:epPulse 2.4s ease-in-out infinite; left:0; width:100%; transform:none}
 }
 @keyframes epPulse{0%,100%{opacity:.15}50%{opacity:.55}}
+
+/* v12.10 inbox switcher: compact gold pill tabs top-left above the list, dots on the right; synced with left/right swipe */
+#email-panel .ep-switch{display:flex; align-items:center; gap:10px; padding:8px 16px 2px}
+#ep-accts{display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; flex:1; min-width:0; -webkit-overflow-scrolling:touch}
+#ep-accts::-webkit-scrollbar{display:none}
+#ep-accts button{
+  flex:none; padding:3px 11px 2px; border-radius:999px; cursor:pointer; touch-action:manipulation;
+  font:700 10.5px/1.5 Rajdhani,sans-serif; letter-spacing:2px; white-space:nowrap;
+  color:var(--gold-dim); background:rgba(243,210,122,.04); border:1px solid rgba(243,210,122,.28);
+  transition:color .2s, border-color .2s, background .2s, box-shadow .2s;
+}
+#ep-accts button:hover{border-color:rgba(255,239,184,.6); color:var(--gold)}
+#ep-accts button.on{
+  color:var(--gold-core); border-color:var(--gold-hot); background:rgba(243,210,122,.14);
+  box-shadow:0 0 8px rgba(255,239,184,.45), inset 0 0 8px rgba(243,210,122,.18); text-shadow:0 0 6px rgba(255,239,184,.6);
+}
+#ep-dots{display:flex; gap:5px; flex:none}
+#ep-dots i{width:5px; height:5px; border-radius:50%; background:rgba(243,210,122,.28); transition:background .2s, box-shadow .2s}
+#ep-dots i.on{background:var(--gold-hot); box-shadow:0 0 6px rgba(255,239,184,.9)}
+#email-panel.ep-swipe-l #ep-list{animation:epSwipeL .28s ease-out}
+#email-panel.ep-swipe-r #ep-list{animation:epSwipeR .28s ease-out}
+@keyframes epSwipeL{from{transform:translateX(28px); opacity:.2} to{transform:none; opacity:1}}
+@keyframes epSwipeR{from{transform:translateX(-28px); opacity:.2} to{transform:none; opacity:1}}
+#email-panel #ep-list{touch-action:pan-y}
+@media (prefers-reduced-motion:reduce){ #email-panel.ep-swipe-l #ep-list, #email-panel.ep-swipe-r #ep-list{animation:none} }
+
+/* v12.10 unread: brighter, bolder row with a glowing gold dot and a thin gold edge; read rows sit back a little */
+#ep-list li.unread{background:linear-gradient(90deg,rgba(255,239,184,.12),rgba(243,210,122,.04) 70%,transparent); border-color:rgba(255,239,184,.32);
+  box-shadow:inset 3px 0 0 var(--gold-hot), 0 0 10px rgba(243,210,122,.10)}
+#ep-list li.unread .dot{width:9px;height:9px;background:var(--gold-hot);box-shadow:0 0 6px #fff7d8,0 0 14px rgba(255,239,184,.9);animation:epUnread 2.4s ease-in-out infinite}
+#ep-list li.unread .from{font-weight:800; color:#fffaf0; text-shadow:0 0 6px rgba(255,239,184,.55)}
+#ep-list li.unread .subj{font-weight:700; color:var(--gold-hot)}
+#ep-list li.read .from{font-weight:600; color:var(--gold); opacity:.85}
+#ep-list li.read .subj, #ep-list li.read .snip{opacity:.72}
+@keyframes epUnread{0%,100%{box-shadow:0 0 5px #fff7d8,0 0 10px rgba(255,239,184,.7)}50%{box-shadow:0 0 8px #fff7d8,0 0 18px rgba(255,239,184,1)}}
+@media (prefers-reduced-motion:reduce){ #ep-list li.unread .dot{animation:none} }
+/* unread badge on each inbox tab */
+#ep-accts button b{display:inline-block; min-width:15px; margin-left:6px; padding:0 4px; border-radius:8px; font:800 9.5px/15px Rajdhani,sans-serif; letter-spacing:.5px; text-align:center;
+  color:#1a1204; background:var(--gold-hot); box-shadow:0 0 6px rgba(255,239,184,.8); vertical-align:1px}
+#ep-accts button:not(.on) b{background:var(--gold-mid); box-shadow:none}

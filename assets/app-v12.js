@@ -29,8 +29,74 @@ addEventListener("resize",fit); phoneMQ.addEventListener&&phoneMQ.addEventListen
 
 /* ---------- activity log ---------- */
 function log(msg){ const p=new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
-  const ul=$("#log"); const li=document.createElement("li"); li.innerHTML=`<b>${p}</b><span></span>`; li.lastChild.textContent=msg; ul.prepend(li);
+  const ul=$("#log"); const li=document.createElement("li"); li.innerHTML=`<b>${p}</b><span></span>`; li.lastChild.innerHTML=linkify(msg); ul.prepend(li);
   while(ul.children.length>8) ul.lastChild.remove(); }
+
+/* ---------- v12.10 conversation history (CHAT): stored only on this device, JARVIS conversations only ---------- */
+function escHtml(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+const URL_RE=/\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+function linkify(text){
+  const t=String(text==null?"":text); let out="", last=0; URL_RE.lastIndex=0; let m;
+  while((m=URL_RE.exec(t))){
+    let u=m[0]; const trail=(u.match(/[.,;:!?)\]}>'"]+$/)||[""])[0]; if(trail){ u=u.slice(0,u.length-trail.length); }
+    if(u.length<5){ continue; }
+    const href=/^www\./i.test(u)?"https://"+u:u;
+    out+=escHtml(t.slice(last,m.index))+`<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer">${escHtml(u)}</a>`;
+    last=m.index+u.length;
+  }
+  return out+escHtml(t.slice(last));
+}
+const LS_HIST="jarvis_history_v1", HIST_MAX=600;
+let chatHist=(()=>{ try{ const a=JSON.parse(localStorage.getItem(LS_HIST)||"[]"); return Array.isArray(a)?a.filter(x=>x&&x.t&&x.r):[]; }catch(e){ return []; } })();
+function histSave(){ try{ while(chatHist.length>HIST_MAX) chatHist.shift(); let j=JSON.stringify(chatHist);
+    while(j.length>900000 && chatHist.length>20){ chatHist.splice(0,50); j=JSON.stringify(chatHist); } localStorage.setItem(LS_HIST,j); }catch(e){} }
+function histAdd(who,text,id){
+  text=String(text||"").trim(); if(!text || (typeof isEmailJson==="function" && isEmailJson(text))) return false;
+  const r=who==="you"?"you":"jarvis", now=Date.now();
+  for(let i=chatHist.length-1;i>=0 && i>=chatHist.length-12;i--){ const h=chatHist[i];
+    if((id && h.id===String(id)) || (h.r===r && h.t===text && now-h.ts<120000)) return false; }
+  const e={r,t:text,ts:now}; if(id) e.id=String(id);
+  chatHist.push(e); histSave();
+  const p=document.getElementById("chat-panel");
+  if(p && !p.hidden) chatRender(true);
+  else if(r==="jarvis"){ const d=document.getElementById("chat-new"); if(d) d.hidden=false;
+    if(URL_RE.test(text) || /\b(in|on) (our|the|this) chat\b/i.test(text)){ try{ toast("LINK IN CHAT · TAP CHAT",3500); }catch(_){} } URL_RE.lastIndex=0; }
+  return true;
+}
+function chatDay(ts){ try{ return new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE,weekday:"short",day:"2-digit",month:"short"}).format(new Date(ts)).toUpperCase(); }catch(e){ return ""; } }
+function chatTime(ts){ try{ return new Intl.DateTimeFormat("en-GB",{timeZone:C.TIMEZONE,hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(ts)); }catch(e){ return ""; } }
+function chatRender(stick){
+  const ol=document.getElementById("chat-list")||document.getElementById("ch-list"); if(!ol) return;
+  const atBottom=ol.scrollHeight-ol.scrollTop-ol.clientHeight<40;
+  if(!chatHist.length){ ol.innerHTML=`<li class="ch-empty">NO CONVERSATIONS YET<br>WHAT YOU ASK AND WHAT JARVIS ANSWERS APPEARS HERE</li>`; return; }
+  let html="", day="";
+  for(const h of chatHist){ const d=chatDay(h.ts); if(d!==day){ day=d; html+=`<li class="ch-day">${escHtml(d)}</li>`; }
+    html+=`<li class="ch-msg ch-${h.r==="you"?"you":"jarvis"}">${linkify(h.t)}<time>${h.r==="you"?"YOU":"JARVIS"} · ${chatTime(h.ts)}</time></li>`; }
+  ol.innerHTML=html;
+  if(stick===true || atBottom || stick==="open") ol.scrollTop=ol.scrollHeight;
+}
+let chatHideT=0;
+function openChat(){
+  const p=document.getElementById("chat-panel"); if(!p) return false;
+  try{ closeTodo(); }catch(e){} try{ const ep=document.getElementById("email-panel"); if(ep&&!ep.hidden) closeInbox(); }catch(e){}
+  clearTimeout(chatHideT); p.classList.remove("ch-closing"); document.body.classList.add("chat-open");
+  if(p.hidden){ p.hidden=false; void p.offsetWidth; }
+  chatRender("open"); p.classList.add("ch-open");
+  const d=document.getElementById("chat-new"); if(d) d.hidden=true;
+  vlog({ev:"chat-open",n:chatHist.length}); return true;
+}
+function closeChat(){
+  const p=document.getElementById("chat-panel"); if(!p||p.hidden){ document.body.classList.remove("chat-open"); return; }
+  p.classList.remove("ch-open"); p.classList.add("ch-closing");
+  clearTimeout(chatHideT); chatHideT=setTimeout(()=>{ if(!p.classList.contains("ch-closing")) return; p.hidden=true; p.classList.remove("ch-closing"); document.body.classList.remove("chat-open"); },
+    (window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)?140:640);
+}
+function toggleChat(){ const p=document.getElementById("chat-panel"); if(p && !p.hidden && p.classList.contains("ch-open")) closeChat(); else openChat(); }
+(function bindChat(){
+  const go=()=>{ const b=document.getElementById("chat-btn"); if(b) b.addEventListener("click",e=>{ e.preventDefault(); toggleChat(); });
+    const c=document.getElementById("ch-close"); if(c) c.addEventListener("click",e=>{ e.preventDefault(); closeChat(); });
+    document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ const p=document.getElementById("chat-panel"); if(p&&!p.hidden) closeChat(); } }); };
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",go); else go(); })();
 
 /* ---------- voice cues (fixed JARVIS clips, Paul Bettany AI pack) ---------- */
 // The clips are Waze navigation prompts; only lines that make sense outside a car are used.
@@ -504,14 +570,52 @@ const LS_INBOX="jarvis_inbox_v1", INBOX_CAP="inbox-cache", INBOX_APPV="12.7.1";
 const INBOX_STALE_MS=10*60*1000;      // background sync on open/launch only when the saved list is older than this
 const INBOX_FRESH_MS=60*1000;         // opening within a minute of a sync just shows the saved list
 let emailPending=0, emailUserWait=false, emailView="", inboxPrefetchAt=0;
-function loadInboxCache(){ try{ const o=JSON.parse(localStorage.getItem(LS_INBOX)||"null"); if(o&&o.data&&Array.isArray(o.data.emails)) return o; }catch(e){} return null; }
+/* v12.10 several inboxes: swipe left/right on the panel or tap the tabs. Each account has its own saved list (localStorage) and its own
+   relay snapshot; requests carry "account". The globals inboxSaved / emailCache.list / emailPending always describe the account on screen. */
+const INBOX_ACCOUNTS=[{id:"default",label:"MAIN"},{id:"dspy",label:"DSPY"},{id:"godpack",label:"GODPACK",addr:"ceo@godpackgames.com"},{id:"cartamagica",label:"CARTA MAGICA",addr:"alex@cartamagica.com"}];
+const LS_INBOX_ACCT="jarvis_inbox_acct";
+function acctId(a){ a=String(a||"default").toLowerCase(); return INBOX_ACCOUNTS.some(x=>x.id===a)?a:"default"; }
+function lsInboxKey(a){ return a==="default"?LS_INBOX:LS_INBOX+"_"+a; }
+let inboxAcct=(()=>{ try{ return acctId(localStorage.getItem(LS_INBOX_ACCT)); }catch(e){ return "default"; } })();
+const inboxState={};   // account -> {saved, pending}
+function loadInboxCache(a){ a=a||inboxAcct; try{ const o=JSON.parse(localStorage.getItem(lsInboxKey(a))||"null"); if(o&&o.data&&Array.isArray(o.data.emails)) return o; }catch(e){} return null; }
 let inboxSaved=loadInboxCache(); if(inboxSaved) emailCache.list=inboxSaved.data;
-function saveInboxCache(data){
+function saveInboxCache(data,a){
+  a=a||inboxAcct;
   const as_of=Number(data&&data.as_of)||Math.floor(Date.now()/1000);
   const keep=Object.assign({},data); delete keep.cached; delete keep.refreshing; delete keep.unchanged;
-  inboxSaved={as_of,data:keep}; emailCache.list=keep;
-  try{ localStorage.setItem(LS_INBOX,JSON.stringify(inboxSaved)); }catch(e){}
+  const saved={as_of,data:keep};
+  if(a===inboxAcct){ inboxSaved=saved; emailCache.list=keep; } else { (inboxState[a]=inboxState[a]||{}).saved=saved; }
+  try{ localStorage.setItem(lsInboxKey(a),JSON.stringify(saved)); }catch(e){}
+  try{ paintInboxTabs(); }catch(e){}
 }
+function inboxAcctInfo(a){ return INBOX_ACCOUNTS.find(x=>x.id===(a||inboxAcct))||INBOX_ACCOUNTS[0]; }
+function paintInboxTabs(){
+  const bar=$("#ep-accts"); if(!bar) return;
+  bar.querySelectorAll("[data-acct]").forEach(b=>{ const on=b.dataset.acct===inboxAcct; b.classList.toggle("on",on); b.setAttribute("aria-selected",on?"true":"false"); b.tabIndex=on?0:-1; });
+  // v12.10 unread badge per inbox (from that inbox's saved list)
+  bar.querySelectorAll("[data-acct]").forEach(b=>{ const a=b.dataset.acct; const sv=a===inboxAcct?inboxSaved:((inboxState[a]&&inboxState[a].saved)||loadInboxCache(a));
+    const n=sv&&sv.data&&Array.isArray(sv.data.emails)?sv.data.emails.filter(m=>m&&m.unread).length:0;
+    let bd=b.querySelector("b"); if(n){ if(!bd){ bd=document.createElement("b"); b.appendChild(bd); } bd.textContent=n>99?"99+":String(n); b.setAttribute("aria-label",b.firstChild.textContent+", "+n+" unread"); }
+    else { if(bd) bd.remove(); b.removeAttribute("aria-label"); } });
+  const dots=$("#ep-dots"); if(dots) dots.innerHTML=INBOX_ACCOUNTS.map(x=>`<i class="${x.id===inboxAcct?"on":""}"></i>`).join("");
+  const k=$("#email-panel .ep-kicker"); if(k){ const i=inboxAcctInfo(); k.textContent=i.addr?i.addr.toUpperCase():"SECURE UPLINK"; }
+  const on=bar.querySelector(".on"); if(on&&on.scrollIntoView) try{ on.scrollIntoView({block:"nearest",inline:"nearest"}); }catch(e){}
+}
+function switchInbox(a,dir){
+  a=acctId(a); if(a===inboxAcct){ paintInboxTabs(); return; }
+  inboxState[inboxAcct]={saved:inboxSaved,pending:emailPending};
+  inboxAcct=a; try{ localStorage.setItem(LS_INBOX_ACCT,a); }catch(e){}
+  const st=inboxState[a]||{};
+  inboxSaved=st.saved||loadInboxCache(a); emailPending=st.pending||0;
+  emailCache.list=inboxSaved?inboxSaved.data:null;
+  emailGen++; clearTimeout(emailTimer); emailTimer=null; emailUserWait=false;
+  paintInboxTabs();
+  const p=$("#email-panel"); if(p){ p.classList.remove("ep-swipe-l","ep-swipe-r"); void p.offsetWidth; if(dir) p.classList.add(dir>0?"ep-swipe-l":"ep-swipe-r"); }
+  vlog({ev:"inbox-switch",acct:a});
+  if(emailPanelVisible()) openInbox();
+}
+function stepInbox(d){ const i=INBOX_ACCOUNTS.findIndex(x=>x.id===inboxAcct); const n=(i+d+INBOX_ACCOUNTS.length)%INBOX_ACCOUNTS.length; switchInbox(INBOX_ACCOUNTS[n].id,d); }
 function inboxAgeMs(){ return inboxSaved? Math.max(0,Date.now()-inboxSaved.as_of*1000) : Infinity; }
 function inboxAgo(){ const m=Math.round(inboxAgeMs()/60000); return m<1?"JUST NOW":m<60?m+" MIN AGO":Math.round(m/60)+" H AGO"; }
 function emailPanelVisible(){ const p=$("#email-panel"); return !!p && !p.hidden && !p.classList.contains("ep-closing"); }
@@ -583,7 +687,7 @@ function setEmailLoading(msg){
   if(list) list.hidden=true;
   if(det) det.hidden=true;
   if(back) back.hidden=true;
-  const title=$("#ep-title"); if(title) title.textContent="INBOX";
+  const title=$("#ep-title"); if(title) title.textContent=inboxAcct==="default"?"INBOX":inboxAcctInfo().label;
 }
 function setEmailError(msg){
   emailGen++;
@@ -635,6 +739,7 @@ async function postEmailRequest(payload,opt){
 }
 function openInbox(force){
   if(typeof closeTodo==="function") closeTodo();
+  try{ closeChat(); }catch(e){}
   force=force===true;
   if(emailCache.list){
     showEmailPanel(); renderEmailList(emailCache.list);
@@ -648,13 +753,14 @@ function requestInboxList(o){
   if(o.user){ emailUserWait=true; armEmailWait(); }
   if(emailPending && Date.now()-emailPending<EMAIL_WAIT_MS){ vlog({ev:"inbox-dedupe"}); return Promise.resolve(true); }   // one in flight at a time
   emailPending=Date.now();
-  const p={type:"email_list",account:"default",limit:15,cap:INBOX_CAP,v:INBOX_APPV};
+  const p={type:"email_list",account:inboxAcct,limit:15,cap:INBOX_CAP,v:INBOX_APPV};
   if(o.force) p.refresh=1;
   if(inboxSaved&&inboxSaved.as_of&&emailCache.list) p.have=inboxSaved.as_of;
   return postEmailRequest(p,{quiet:!o.user});
 }
 function prefetchInbox(){
   if(document.visibilityState==="hidden" || !requestsTopic()) return;
+  if(inboxAcct!=="default") return;   // background prefetch (like the relay keep-warm) only for the main inbox
   if(inboxAgeMs()<INBOX_STALE_MS || Date.now()-inboxPrefetchAt<5*60*1000) return;
   inboxPrefetchAt=Date.now();
   requestInboxList({});
@@ -666,9 +772,16 @@ function openEmail(id){
   if(emailCache.open[id]){ renderEmailDetail(emailCache.open[id]); return; }
   setEmailLoading("RETRIEVING MESSAGE…");
   armEmailWait();
-  return postEmailRequest({type:"email_open",id:String(id)});
+  return postEmailRequest({type:"email_open",id:String(id),account:inboxAcct});
 }
 function handleEmailList(data){
+  const acct=acctId(data&&data.account);
+  if(acct!==inboxAcct){   // a list for another inbox (background or after a swipe): cache it for that account only
+    const st=inboxState[acct]=inboxState[acct]||{saved:loadInboxCache(acct)};
+    if(data.ok!==false && !(data.cached&&data.refreshing)) st.pending=0;
+    if(data.ok!==false && !data.unchanged && Array.isArray(data.emails) && !(data.cached && st.saved && Number(data.as_of)<st.saved.as_of)) saveInboxCache(data,acct);
+    vlog({ev:"inbox-other",acct}); return;
+  }
   const wanted=emailUserWait, visible=emailPanelVisible();
   const done=()=>{ emailGen++; clearTimeout(emailTimer); emailTimer=null; emailUserWait=false; };
   if(data.ok===false){
@@ -681,7 +794,7 @@ function handleEmailList(data){
   const refreshing=!!(data.cached && data.refreshing);
   if(!refreshing) emailPending=0;
   if(data.unchanged){
-    if(inboxSaved && Number(data.as_of)>inboxSaved.as_of){ inboxSaved.as_of=Number(data.as_of); try{ localStorage.setItem(LS_INBOX,JSON.stringify(inboxSaved)); }catch(e){} }
+    if(inboxSaved && Number(data.as_of)>inboxSaved.as_of){ inboxSaved.as_of=Number(data.as_of); try{ localStorage.setItem(lsInboxKey(inboxAcct),JSON.stringify(inboxSaved)); }catch(e){} }
   } else {
     if(data.cached && inboxSaved && Number(data.as_of)<inboxSaved.as_of) {}           // older than what we hold
     else saveInboxCache(data);
@@ -718,15 +831,15 @@ function renderEmailList(data){
   const list=$("#ep-list"), det=$("#ep-detail"), back=$("#ep-back"), title=$("#ep-title");
   emailView="list";
   setEmailMode("ready", emails.length?"":"INBOX EMPTY");
-  if(title) title.textContent="INBOX"+(emails.length?"  ·  "+emails.length:"");
+  if(title) title.textContent=(inboxAcct==="default"?"INBOX":inboxAcctInfo().label)+(emails.length?"  ·  "+emails.length:"");
   if(back) back.hidden=true;
   if(det) det.hidden=true;
   if(!list) return;
   list.hidden=false;
   list.innerHTML=emails.map(m=>{
-    const unread=m&&m.unread? " unread":"";
+    const unread=m&&m.unread? " unread":" read";
     return `<li class="${unread.trim()}" data-id="${escEmail(m.id||"")}">`
-      +`<span class="dot"></span>`
+      +`<span class="dot"${m&&m.unread?' title="Unread"':""}></span>`
       +`<span class="from">${escEmail(m.from||m.from_email||"Unknown")}</span>`
       +`<span class="when">${escEmail(fmtWhen(m.date||m.time||""))}</span>`
       +`<span class="subj">${escEmail(m.subject||"(no subject)")}</span>`
@@ -777,6 +890,7 @@ async function onReply(text,id,knownUrl){
     return;
   }
   log("JARVIS: "+text);
+  histAdd("jarvis",text,id);
   holdStatus("NEW REPLY",false,8000);
   realReplyGen=requestGen;
   if(pendingAck && !pendingAck.started){ pendingAck.cancelled=true; vlog({ev:"drop-ack",reason:"real-reply"}); pendingAck=null; }
@@ -860,9 +974,9 @@ if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pi
 /* ---------- state helpers ---------- */
 let busyReq=false, listening=false, mode="idle";
 /* v12.9 conversation mode + Android native listening (see "conversation mode" block below) */
-let convo=false, nativeLis=false;
-function setBusy(){ const lis=(listening&&mode==="command")||mode==="handoff"||nativeLis; document.body.classList.toggle("convo",convo); const b=speaking||busyReq||lis; document.body.classList.toggle("busy",b); document.body.classList.toggle("listening",lis);
-  $("#core-sub").textContent = lis?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING": convo?"CONVERSATION":"STANDING BY"; }
+let convo=false, nativeLis=false, convoMuted=false;
+function setBusy(){ try{ if(convo&&speaking&&!helmVoiceLoop.raf) helmVoiceLoop.raf=requestAnimationFrame(helmVoiceLoop); }catch(e){} const lis=(listening&&mode==="command")||mode==="handoff"||nativeLis; document.body.classList.toggle("convo",convo); document.body.classList.toggle("convo-muted",convo&&convoMuted); const b=speaking||busyReq||lis; document.body.classList.toggle("busy",b); document.body.classList.toggle("listening",lis);
+  $("#core-sub").textContent = lis?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING": convo?(convoMuted?"MIC MUTED":"CONVERSATION"):"STANDING BY"; }
 function toast(t,ms=3200){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show"),ms); }
 function setStatus(t,warn){ $("#status-txt").textContent=t; $(".status-pill").classList.toggle("warn",!!warn); }
 /* uplink status set after bindSetup */
@@ -1021,6 +1135,7 @@ function openTodo(kind,idx){
   const list=kind==="fleet"?todoData.fleet:todoData.wait, item=list[idx]; if(!item) return false;
   const p=$("#todo-panel"); if(!p) return false;
   if(typeof closeInbox==="function"){ const ep=$("#email-panel"); if(ep&&!ep.hidden) closeInbox(); }
+  try{ closeChat(); }catch(e){}
   todoCur={kind,idx,item};
   document.querySelectorAll("#wait-list li.tp-active,#fleet-list li.tp-active").forEach(li=>li.classList.remove("tp-active"));
   const li=document.querySelector(`#${kind==="fleet"?"fleet":"wait"}-list li[data-i="${idx}"]`); if(li) li.classList.add("tp-active");
@@ -1084,7 +1199,7 @@ const LS_URL="jarvis_webhook_url", LS_KEY="jarvis_webhook_key", LS_TOPIC="jarvis
 // v12.3.1 fix: these two were lost when v11 was split out of v10, so every live ntfy message threw a ReferenceError in ingestNtfy.
 const ntfySeen=new Set((()=>{ try{ return JSON.parse(localStorage.getItem(LS_SEEN)||"[]"); }catch(e){ return []; } })());
 function rememberNtfy(id){ ntfySeen.add(id); lastSeenId=String(id); try{ localStorage.setItem(LS_SEEN,JSON.stringify([...ntfySeen].slice(-400))); }catch(e){} }
-const SOURCE=C.SOURCE||((/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent))?"phone":"desktop");
+const SOURCE=(qs.get("source")==="desktop")?"desktop":C.SOURCE||((/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent))?"phone":"desktop");
 function consumeTopicFragment(){
   const raw=location.hash||"";
   if(!raw||raw.length<2) return;
@@ -1121,11 +1236,39 @@ function ntfyPayload(ev){
   if(!text&&!url) return null;
   let part=0, parts=0;   // v12.3.1: streamed reply audio, "[[part k/n]] <full reply text>"
   if(isAudio){ const m=/^\[\[part (\d+)\/(\d+)\]\]\s*([\s\S]*)$/.exec(text); if(m){ part=+m[1]; parts=+m[2]; text=m[3].trim(); } }
-  return {id:String(data.id||data.time||text||url), text, isAudio, url, part, parts};
+  // v12.10: ntfy turns messages over 4,096 bytes into a text file ("You received a file: attachment.txt"); fetch it instead
+  const fileText=!isAudio && !!url && !!att && (/^text\//i.test(String(att.type||"")) || /\.(txt|json)$/i.test(String(att.name||"")) || /^You received a file/i.test(text));
+  return {id:String(data.id||data.time||text||url), text, isAudio, url, part, parts, fileText, size:+(att&&att.size)||0};
 }
+async function fetchTextAttachment(msg){
+  if(msg.size>2000000) { vlog({ev:"att-too-big",size:msg.size}); return null; }
+  for(let i=0;i<3;i++){
+    try{ const r=await fetch(msg.url,{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status);
+      const t=(await r.text()).trim(); vlog({ev:"att-text",bytes:t.length,email:isEmailJson(t)});
+      return Object.assign({},msg,{text:t,url:"",fileText:false,viaFile:true}); }
+    catch(e){ vlog({ev:"att-error",err:String(e&&e.message||e)}); await new Promise(r=>setTimeout(r,800*(i+1))); }
+  }
+  if(isEmailJson(msg.text)) return null;
+  try{ if(emailPending){ showEmailPanel(); setEmailError("Inbox reply could not be downloaded - tap refresh."); } }catch(e){}
+  return null;
+}
+/* v12.10 + APK 1.3.0: while the app is hidden the APK speaks replies itself; the page stays quiet then, and skips replies the
+   app already spoke when it comes back (no double playback). Inbox JSON is never spoken natively, so it always passes. */
+function nativeSpeaks(msg){
+  if(!IN_APK || !msg || !msg.text || isEmailJson(msg.text)) return false;
+  try{ if(document.hidden && typeof JarvisNative.bgSpeakOn==="function" && JarvisNative.bgSpeakOn()) return true;
+       if(typeof JarvisNative.spokeText==="function" && JarvisNative.spokeText(msg.text)) return true; }catch(e){}
+  return false; }
 function ingestNtfy(msg){
   if(!msg||ntfySeen.has(msg.id)) return null;
   rememberNtfy(msg.id);
+  if(msg.fileText){   // long reply / long inbox JSON delivered as a file: deliver it once it is downloaded
+    fetchTextAttachment(msg).then(m=>{ if(!m) return; const p=ingestAfterFile(m); if(p) onReply(p.text,p.id,p.url); });
+    return null; }
+  return ingestAfterFile(msg);
+}
+function ingestAfterFile(msg){
+  if(nativeSpeaks(msg)){ if(!msg.isAudio && !isAckText(msg.text)){ log("JARVIS: "+msg.text); histAdd("jarvis",msg.text,msg.id); try{ ackReq.replied=true; }catch(e){} } vlog({ev:"native-spoke",audio:!!msg.isAudio}); return null; }
   if(msg.isAudio){ offerAudio(msg); return null; }
   return msg;
 }
@@ -1238,7 +1381,8 @@ async function catchUpReplies(){
     }
     leftoverAudio.filter(a=>a.part&&a.url).forEach(offerPart);          // v12.3.1: streamed parts go to the part store
     const fullAudio=leftoverAudio.filter(a=>!a.part);
-    for(const msg of pending){
+    for(let msg of pending){
+      if(msg.fileText){ msg=await fetchTextAttachment(msg); if(!msg) continue; }   // v12.10: long reply / inbox JSON sent as a file
       let url="";
       const i=fullAudio.findIndex(a=>a.text===msg.text&&a.url);
       if(i>=0) url=fullAudio.splice(i,1)[0].url;
@@ -1396,6 +1540,7 @@ async function sendRequest(text){
   log("YOU: "+text);
   const req=requestsTopic();
   if(!req){ toast("TAP SETUP TO CONNECT"); log("Not sent — open SETUP and paste the requests channel"); holdStatus("TAP SETUP TO CONNECT",true,5000); return; }
+  histAdd("you",text);
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
   noteSentRequest();
@@ -1453,8 +1598,25 @@ function bindSetup(){
   const epBack=$("#ep-back"); if(epBack) epBack.addEventListener("click",e=>{e.preventDefault(); showEmailList();});
   const epRefresh=$("#ep-refresh"); if(epRefresh) epRefresh.addEventListener("click",e=>{e.preventDefault(); openInbox(true);});
   const epList=$("#ep-list"); if(epList) epList.addEventListener("click",e=>{
+    if(Date.now()-(bindSetup.swipedAt||0)<350) return;   // that touch was a swipe between inboxes
     const li=e.target.closest("li[data-id]"); if(li) openEmail(li.getAttribute("data-id"));
   });
+  // v12.10 inbox switcher: tabs + swipe/trackpad left-right + arrow keys
+  const accts=$("#ep-accts"); if(accts){
+    accts.innerHTML=INBOX_ACCOUNTS.map(x=>`<button type="button" role="tab" data-acct="${x.id}" title="${x.addr||"Main Gmail"}">${x.label}</button>`).join("");   // label text node first, unread <b> badge after
+    accts.addEventListener("click",e=>{ const b=e.target.closest("[data-acct]"); if(!b) return; e.preventDefault();
+      const i=INBOX_ACCOUNTS.findIndex(x=>x.id===inboxAcct), j=INBOX_ACCOUNTS.findIndex(x=>x.id===b.dataset.acct); switchInbox(b.dataset.acct, j>i?1:-1); });
+    paintInboxTabs(); }
+  const ep=$("#email-panel"); if(ep){
+    let sx=0, sy=0, st=0, track=false;
+    ep.addEventListener("touchstart",e=>{ if(e.touches.length!==1||emailView==="detail") { track=false; return; } track=true; sx=e.touches[0].clientX; sy=e.touches[0].clientY; st=Date.now(); },{passive:true});
+    ep.addEventListener("touchend",e=>{ if(!track) return; track=false; const t=e.changedTouches[0]; const dx=t.clientX-sx, dy=t.clientY-sy;
+      if(Math.abs(dx)>60 && Math.abs(dx)>1.6*Math.abs(dy) && Date.now()-st<900 && !e.target.closest("#ep-accts")){ bindSetup.swipedAt=Date.now(); stepInbox(dx<0?1:-1); } },{passive:true});
+    let wAcc=0, wAt=0;
+    ep.addEventListener("wheel",e=>{ if(emailView==="detail") return; const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:(e.shiftKey?e.deltaY:0); if(!dx) return;
+      const now=Date.now(); if(now-wAt>400) wAcc=0; wAt=now; wAcc+=dx; if(Math.abs(wAcc)>120 && now-(bindSetup.swipedAt||0)>500){ bindSetup.swipedAt=now; stepInbox(wAcc>0?1:-1); wAcc=0; } },{passive:true});
+    ep.addEventListener("keydown",e=>{ if(emailView==="detail") return; if(e.key==="ArrowRight"){ e.preventDefault(); stepInbox(1); } else if(e.key==="ArrowLeft"){ e.preventDefault(); stepInbox(-1); } });
+  }
 
   bindTodo();
   const ds=$("#dock-settings"); if(ds) ds.addEventListener("click",e=>{e.preventDefault(); openSetup();});
@@ -1495,10 +1657,19 @@ let wakeQuietUntil=0, wakeFails=0;
    Falls back to SpeechRecognition speech/result events if the analyser is unavailable. */
 let helmStream=null, helmAnalyser=null, helmRaf=0, helmPending=false, helmDenied=false, helmSpeech=false, helmSrc=null;
 function helmActive(){ return (listening&&mode==="command")||mode==="handoff"||nativeLis||convo; }
+function helmMuted(){ return convo&&convoMuted; }
+/* v12.10: while JARVIS talks during a conversation the helm's eyes and glow follow his voice (output analyser), even when muted */
+function helmVoiceLoop(){
+  const el=helmEl(); if(!el) return;
+  const on=convo && speaking;
+  if(!on){ if(el.classList.contains("jv-talk")){ el.classList.remove("jv-talk"); el.style.setProperty("--hh-jv","0"); } helmVoiceLoop.raf=0; return; }
+  let lv=0; try{ lv=window.JARVIS_AUDIO&&JARVIS_AUDIO.level? +JARVIS_AUDIO.level() : 0; }catch(e){}
+  el.classList.add("jv-talk"); el.style.setProperty("--hh-jv",Math.max(0,Math.min(1,lv||0)).toFixed(3));
+  helmVoiceLoop.raf=requestAnimationFrame(helmVoiceLoop); }
 /* v12.9: inside the Android app the native recogniser owns the mic; it reports the level (onRmsChanged) here instead of a second
    getUserMedia capture, which can starve the recogniser. No level (older APK) = gentle idle shimmer only. */
 const IN_APK=!!window.JarvisNative; let helmNativeAt=0;
-window.__jarvisMicLevel=v=>{ helmNativeAt=Date.now(); helmLevel=Math.max(0,Math.min(1,+v||0)); paintHelmet(); };
+window.__jarvisMicLevel=v=>{ if(convoMuted) v=0; helmNativeAt=Date.now(); helmLevel=Math.max(0,Math.min(1,+v||0)); paintHelmet(); };
 window.__jarvisNativeListening=on=>{ nativeLis=!!on; if(!on){ helmLevel=0; } micUI(); };
 function helmEl(){ return $("#holo-helm"); }
 let helmLevel=0;
@@ -1509,7 +1680,9 @@ function paintHelmet(){
   el.setAttribute("aria-hidden", on?"false":"true");
   if(!on){ helmSpeech=false; helmLevel=0; el.classList.remove("speaking"); el.style.setProperty("--hh-level","0"); return; }
   el.style.setProperty("--hh-level", helmLevel.toFixed(3));
-  el.classList.toggle("speaking", helmSpeech || helmLevel>0.06);
+  el.classList.toggle("muted", helmMuted());
+  if(convo && speaking && !helmVoiceLoop.raf) helmVoiceLoop.raf=requestAnimationFrame(helmVoiceLoop);
+  el.classList.toggle("speaking", !helmMuted() && (helmSpeech || helmLevel>0.06));
 }
 function setHelmSpeech(on){
   helmSpeech=!!on;
@@ -1565,9 +1738,10 @@ function syncHelmet(){
 
 function micUI(){ $("#p-mic").classList.toggle("listening",listening&&(mode==="command"||mode==="handoff"));
   ["#vb-mic","#mic-btn"].forEach(q=>{ const b=$(q); if(b){ b.classList.toggle("convo",convo); b.title=convo?"End conversation":"Talk"; b.setAttribute("aria-pressed",convo?"true":"false"); } });
+  const mb=$("#vb-mute"); if(mb){ mb.classList.toggle("on",convoMuted); mb.setAttribute("aria-pressed",convoMuted?"true":"false"); const sp=mb.querySelector("span"); if(sp) sp.textContent=convoMuted?"MUTED":"MUTE"; mb.title=convoMuted?"Unmute the mic":"Mute the mic (conversation stays open)"; }
   $("#mic-state").textContent = (mode==="command"||mode==="handoff")?"LISTENING…":"JARVIS ONLINE";
   const wakeOn=C.WAKE_WORD_ENABLED&&!micBlocked&&!!SR;
-  const mh=$("#m-hint"); if(mh) mh.textContent = convo?((mode==="command"||mode==="handoff")?"LISTENING… TAP THE MIC TO END":"CONVERSATION ON · TAP THE MIC TO END"): !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
+  const mh=$("#m-hint"); if(mh) mh.textContent = convo?(convoMuted?"MIC MUTED · TAP MUTE TO TALK · MIC TO END":(mode==="command"||mode==="handoff")?"LISTENING… TAP THE MIC TO END":"CONVERSATION ON · TAP THE MIC TO END"): !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
   $("#mic-hint").textContent = !SR?"VOICE INPUT NEEDS CHROME OR EDGE": (mode==="command"||mode==="handoff")?"SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" TO ACTIVATE`:"CLICK THE MIC TO TALK";
   document.body.classList.toggle("wake-on",wakeOn&&wakeArmed);
   setBusy(); syncHelmet(); }
@@ -1598,12 +1772,12 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
   mode=m; try{ rec&&rec.abort(); }catch(e){}
   const r=new SR(); rec=r; r.lang="en-GB"; r.interimResults=true; r.continuous=(m==="wake"); let finalText="", heard=false;
   r.onstart=()=>{ if(rec!==r) return; listening=true; startRec.okAt=Date.now(); micUI(); };
-  r.onspeechstart=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(true); };
+  r.onspeechstart=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(true); if(m==="command") convoSpeechAgain(); };
   r.onspeechend=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(false); };
   r.onresult=ev=>{ if(rec!==r) return; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
-    micLevel=1; heard=true; wakeFails=0; if(m==="command"&&convo) convoHeardAt=Date.now(); clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
+    micLevel=1; heard=true; wakeFails=0; if(m==="command"&&convo){ convoHeardAt=Date.now(); convoSpeechAgain(); } clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
     if(m==="command"||m==="handoff") setHelmSpeech(true);
-    if(m==="command") $("#vb-input").value=(finalText+interim).trim();
+    if(m==="command") $("#vb-input").value=((convoPending?convoPending+" ":"")+finalText+interim).trim();
     if(m==="wake"){ if(speaking || Date.now()<wakeQuietUntil){ finalText=""; return; }   // never wake on JARVIS's own voice
       const last=ev.results[ev.results.length-1]; if(!last.isFinal) return;
       // check each final result as its own utterance so bare "jarvis" only counts at the start of one
@@ -1614,9 +1788,11 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
       micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); }
     else if(m==="wake" && e.error!=="no-speech" && e.error!=="aborted") wakeFails++; };
   r.onend=()=>{ if(rec!==r) return; listening=false;
-    if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle"; if(t){ sendRequest(t); convoSent(); } }
+    if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle";
+      if(convo) convoTurnEnded(t, heard);   // v12.10: hold and merge (one sentence with pauses = one request)
+      else if(t){ sendRequest(t); convoSent(); } }
     if(mode==="wakesent") mode="idle";
-    if(convo){ if(mode!=="handoff") mode="idle"; }
+    if(convo){ if(rec!==r){ micUI(); return; } if(mode!=="handoff") mode="idle"; }   // rec!==r: the hold already restarted listening
     else if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ if(mode!=="command") mode="idle";
       // back off when the recogniser keeps failing (network etc.) instead of spinning
       scheduleWake(speaking?1500:Math.min(30000,300*Math.pow(2,Math.min(wakeFails,7)))); }
@@ -1649,22 +1825,57 @@ function convoStart(how){
   nativeConvo(true); clearInterval(convoTimer); convoTimer=setInterval(convoTick,250);
   log("Conversation open ("+convoHow+") - tap the mic to end"); window.__jarvisConvo=(window.__jarvisConvo||0)+1; micUI(); }
 function convoEnd(why){
-  if(!convo) return; convo=false; clearInterval(convoTimer); convoTimer=0; convoAwait=null;
+  if(!convo) return; convoFlush("end"); convo=false; convoMuted=false; clearInterval(convoTimer); convoTimer=0; convoAwait=null;
   if(mode==="command"||mode==="handoff"){ const i=$("#vb-input"); if(i) i.value=""; mode="idle"; try{ rec&&rec.abort(); }catch(e){} listening=false; }
   nativeConvo(false); log("Conversation closed"+(why?" ("+why+")":"")); toast("CONVERSATION CLOSED",1800);
   if(C.WAKE_WORD_ENABLED&&wakeArmed&&SR) scheduleWake(900);
   micUI(); }
 function convoSent(){ if(!convo) return; convoHeardAt=Date.now(); convoQuietAt=0; convoAwait=ackReq; convoAwaitAt=Date.now(); }
 function convoBusy(){ return speaking||busyReq||voiceJobDepth>0; }
+/* v12.10 one sentence = one request. Recognisers (Android's above all) end a turn at a short breath. In a conversation a finished
+   turn is held: we listen straight on and only send once CONVO_HOLD_MS pass without new speech (longer after a dangling word like
+   "that", "and", "the"). New speech is appended. Cost: every request leaves ~1.3 s later (the fast brain's ~0.5 s answer now lands
+   ~1.8 s after you stop); the instant on-device ack still plays at send time. */
+const CONVO_HOLD_MS=1300, CONVO_HOLD_LONG_MS=2300;
+const DANGLING=/\b(and|or|but|so|because|that|which|the|a|an|to|of|for|with|about|from|at|if|then|my|your|i|we)$/i;   // words a finished sentence rarely ends on ("what time is it", "how are you" are complete)
+let convoPending="", convoHoldT=0, convoHoldFire=false, convoMerged=0;
+function convoHoldMs(t){ return DANGLING.test(String(t||"").trim().replace(/[.,!?;:]+$/,""))?CONVO_HOLD_LONG_MS:CONVO_HOLD_MS; }
+function convoFlush(why){
+  clearTimeout(convoHoldT); convoHoldT=0;
+  const t=convoPending.trim(); convoPending=""; if(!t) return;
+  const i=$("#vb-input"); if(i) i.value="";
+  vlog({ev:"convo-send",why,merged:convoMerged,len:t.length}); window.__jarvisMerged=(window.__jarvisMerged||0)+(convoMerged>0?1:0); convoMerged=0;
+  sendRequest(t); convoSent(); }
+function convoSpeechAgain(){ if(convoHoldT){ clearTimeout(convoHoldT); convoHoldT=0; if(convoPending) convoMerged++; } }
+function convoTurnEnded(t, heardNew){
+  if(convoMuted){ if(convoPending) convoFlush("mute"); return; }
+  if(convoHoldFire){ convoHoldFire=false; convoFlush("pause"); return; }
+  if(!t){ convoFlush("empty"); return; }
+  if(convoPending && (t===convoPending || !heardNew)){ convoFlush("no-more"); return; }   // the follow-up turn heard nothing new
+  convoPending=t;
+  clearTimeout(convoHoldT);
+  convoHoldT=setTimeout(()=>{ convoHoldT=0;
+    if(rec && mode==="command"){ convoHoldFire=true; try{ rec.abort(); }catch(e){ convoHoldFire=false; convoFlush("pause"); } }   // onend sends
+    else convoFlush("pause"); }, convoHoldMs(t));
+  startRec.retried=false; startRec("command");   // keep listening during the hold
+}
+function setConvoMute(on){
+  if(!convo) return; on=!!on; if(on===convoMuted) return;
+  convoMuted=on;
+  if(on){ if(mode==="command"){ convoHoldFire=false; try{ rec&&rec.abort(); }catch(e){} } else convoFlush("mute");
+    listening=false; helmLevel=0; log("Mic muted - conversation stays open"); toast("MIC MUTED · JARVIS CAN STILL ANSWER",2000); }
+  else { convoHeardAt=Date.now(); convoQuietAt=0; log("Mic on"); if(!speaking && mode!=="command" && mode!=="handoff"){ startRec.retried=false; startRec("command"); } }
+  window.__jarvisMuteToggles=(window.__jarvisMuteToggles||0)+1; micUI(); }
 function convoTick(){
   if(!convo) return;
   const now=Date.now();
   if(now-(convoTick.hb||0)>30000){ convoTick.hb=now; nativeConvo(true); }   // heartbeat: the APK expires a conversation pause after 150 s without one
   if(mode==="command"||mode==="handoff"){
     // JARVIS started talking while we listen and the user has said nothing: stop listening so he never hears himself
-    if(speaking && mode==="command" && !(($("#vb-input")||{}).value||"").trim()){ try{ rec&&rec.abort(); }catch(e){} }
+    if(speaking && mode==="command" && !(($("#vb-input")||{}).value||"").trim() && !convoPending){ try{ rec&&rec.abort(); }catch(e){} }
     return; }
   if(document.hidden && !IN_APK) return;
+  if(convoMuted){ convoHeardAt=now; convoQuietAt=0; return; }   // muted: no listening and no silence timer, replies still play
   if(convoBusy()){ convoQuietAt=0; return; }
   if(convoAwait){ const a=convoAwait;
     if(a.ts>0 && !a.replied && ackReq===a && now-convoAwaitAt<CONVO_REPLY_WAIT_MS) return;   // reply on its way
@@ -1674,6 +1885,11 @@ function convoTick(){
   if(now-convoHeardAt>CONVO_SILENCE_MS){ convoEnd("quiet for "+Math.round(CONVO_SILENCE_MS/1000)+" s"); return; }
   convoQuietAt=0; startRec.retried=false; startRec("command"); }
 document.addEventListener("visibilitychange",()=>{ if(document.hidden && convo && !IN_APK) convoEnd("app hidden"); });
+(function(){ const vb=$("#vb-mic"); if(!vb||$("#vb-mute")) return;
+  const b=document.createElement("button"); b.type="button"; b.id="vb-mute"; b.title="Mute the mic (conversation stays open)"; b.setAttribute("aria-pressed","false");
+  b.innerHTML='<svg viewBox="0 0 24 24"><rect x="8.5" y="2" width="7" height="13" rx="3.5"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/><path class="slash" d="M4 3l16 18"/></svg><span>MUTE</span>';
+  vb.parentNode.insertBefore(b, vb);
+  b.addEventListener("click",e=>{ e.preventDefault(); setConvoMute(!convoMuted); }); })();
 $("#mic-btn").addEventListener("click",talk); $("#vb-mic").addEventListener("click",talk);
 $("#dock-core").addEventListener("click",e=>{e.preventDefault(); talk();});
 const coreStage=$("#core-stage");
@@ -1742,7 +1958,7 @@ if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
 (function(){ const v=$("#brand .ver"); const B=window.JARVIS_BUILD||""; if(v&&B) v.textContent="v"+B;
   const am=/JarvisAndroid\/([\d.]+)/.exec(navigator.userAgent); log("Build v"+(B||"?")+(am?" · Android app "+am[1]:"")); })();
-window.JARVIS={get build(){return window.JARVIS_BUILD||"";},get convo(){return convo;},startConversation:h=>{ if(!convo){ convoStart(h||"api"); startRec.retried=false; startRec("command"); } },endConversation:w=>convoEnd(w||"api"),get nativeListening(){return nativeLis;},get helmLevel(){return helmLevel;},launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={get build(){return window.JARVIS_BUILD||"";},get history(){return chatHist.slice();},histAdd,openChat,closeChat,linkify,get convo(){return convo;},get convoMuted(){return convoMuted;},setMute:on=>setConvoMute(on),get convoPending(){return convoPending;},startConversation:h=>{ if(!convo){ convoStart(h||"api"); startRec.retried=false; startRec("command"); } },endConversation:w=>convoEnd(w||"api"),get nativeListening(){return nativeLis;},get helmLevel(){return helmLevel;},launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,switchInbox,stepInbox,get inboxAccount(){return inboxAcct;},accounts:INBOX_ACCOUNTS,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

@@ -859,8 +859,10 @@ if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pi
 
 /* ---------- state helpers ---------- */
 let busyReq=false, listening=false, mode="idle";
-function setBusy(){ const lis=(listening&&mode==="command")||mode==="handoff"; const b=speaking||busyReq||lis; document.body.classList.toggle("busy",b); document.body.classList.toggle("listening",lis);
-  $("#core-sub").textContent = lis?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING":"STANDING BY"; }
+/* v12.9 conversation mode + Android native listening (see "conversation mode" block below) */
+let convo=false, nativeLis=false;
+function setBusy(){ const lis=(listening&&mode==="command")||mode==="handoff"||nativeLis; document.body.classList.toggle("convo",convo); const b=speaking||busyReq||lis; document.body.classList.toggle("busy",b); document.body.classList.toggle("listening",lis);
+  $("#core-sub").textContent = lis?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING": convo?"CONVERSATION":"STANDING BY"; }
 function toast(t,ms=3200){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show"),ms); }
 function setStatus(t,warn){ $("#status-txt").textContent=t; $(".status-pill").classList.toggle("warn",!!warn); }
 /* uplink status set after bindSetup */
@@ -1492,7 +1494,12 @@ let wakeQuietUntil=0, wakeFails=0;
    Speaking bars use a Web Audio analyser on an already-granted mic stream only; never prompts.
    Falls back to SpeechRecognition speech/result events if the analyser is unavailable. */
 let helmStream=null, helmAnalyser=null, helmRaf=0, helmPending=false, helmDenied=false, helmSpeech=false, helmSrc=null;
-function helmActive(){ return (listening&&mode==="command")||mode==="handoff"; }
+function helmActive(){ return (listening&&mode==="command")||mode==="handoff"||nativeLis||convo; }
+/* v12.9: inside the Android app the native recogniser owns the mic; it reports the level (onRmsChanged) here instead of a second
+   getUserMedia capture, which can starve the recogniser. No level (older APK) = gentle idle shimmer only. */
+const IN_APK=!!window.JarvisNative; let helmNativeAt=0;
+window.__jarvisMicLevel=v=>{ helmNativeAt=Date.now(); helmLevel=Math.max(0,Math.min(1,+v||0)); paintHelmet(); };
+window.__jarvisNativeListening=on=>{ nativeLis=!!on; if(!on){ helmLevel=0; } micUI(); };
 function helmEl(){ return $("#holo-helm"); }
 let helmLevel=0;
 function paintHelmet(){
@@ -1522,7 +1529,7 @@ function stopHelmMeter(){
   paintHelmet();
 }
 async function startHelmMeter(){
-  if(!helmActive() || helmStream || helmPending || helmDenied) return;
+  if(!helmActive() || helmStream || helmPending || helmDenied || IN_APK) return;
   let granted=false;
   try{ const st=await navigator.permissions.query({name:"microphone"}); granted=!!(st&&st.state==="granted"); }catch(e){ granted=false; }
   if(!granted || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
@@ -1557,14 +1564,15 @@ function syncHelmet(){
 }
 
 function micUI(){ $("#p-mic").classList.toggle("listening",listening&&(mode==="command"||mode==="handoff"));
+  ["#vb-mic","#mic-btn"].forEach(q=>{ const b=$(q); if(b){ b.classList.toggle("convo",convo); b.title=convo?"End conversation":"Talk"; b.setAttribute("aria-pressed",convo?"true":"false"); } });
   $("#mic-state").textContent = (mode==="command"||mode==="handoff")?"LISTENING…":"JARVIS ONLINE";
   const wakeOn=C.WAKE_WORD_ENABLED&&!micBlocked&&!!SR;
-  const mh=$("#m-hint"); if(mh) mh.textContent = !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
+  const mh=$("#m-hint"); if(mh) mh.textContent = convo?((mode==="command"||mode==="handoff")?"LISTENING… TAP THE MIC TO END":"CONVERSATION ON · TAP THE MIC TO END"): !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
   $("#mic-hint").textContent = !SR?"VOICE INPUT NEEDS CHROME OR EDGE": (mode==="command"||mode==="handoff")?"SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" TO ACTIVATE`:"CLICK THE MIC TO TALK";
   document.body.classList.toggle("wake-on",wakeOn&&wakeArmed);
   setBusy(); syncHelmet(); }
 function scheduleWake(delay){ clearTimeout(scheduleWake.t);
-  scheduleWake.t=setTimeout(()=>{ if(C.WAKE_WORD_ENABLED && wakeArmed && !document.hidden && mode!=="command" && mode!=="handoff") startRec("wake"); },delay); }
+  scheduleWake.t=setTimeout(()=>{ if(!convo && C.WAKE_WORD_ENABLED && wakeArmed && !document.hidden && mode!=="command" && mode!=="handoff") startRec("wake"); },delay); }
 // Wake phrase heard: short cue, sphere to LISTENING, then either send the words that followed it or listen for the request.
 // v12.6: short, soft, gold "thinking" chime when a request is sent (generated, not voiced; quiet, under 0.5 s)
 function thinkingChime(){ if(muted) return; try{ const ac=audioCtx(); if(!ac) return; if(ac.state==="suspended") ac.resume();
@@ -1580,20 +1588,20 @@ function wakeChime(){ if(muted) return; try{ const ac=audioCtx(); if(!ac) return
   g.gain.exponentialRampToValueAtTime(0.18,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.26);
   [[660,0],[990,0.09]].forEach(([f,d])=>{ const o=ac.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t+d); o.connect(g); o.start(t+d); o.stop(t+d+0.17); });
   window.__jarvisChimes=(window.__jarvisChimes||0)+1; }catch(e){} }
-function onWake(rest){ wakeQuietUntil=Date.now()+1500; log("Wake word heard"); wakeChime();
-  if(rest.split(/\s+/).filter(Boolean).length>=2){ mode="wakesent"; try{ rec.abort(); }catch(e){} sendRequest(rest); return; }
+function onWake(rest){ wakeQuietUntil=Date.now()+1500; log("Wake word heard"); wakeChime(); convoStart("wake word");
+  if(rest.split(/\s+/).filter(Boolean).length>=2){ mode="wakesent"; try{ rec.abort(); }catch(e){} sendRequest(rest); convoSent(); return; }
   mode="handoff"; listening=true; micUI(); try{ rec.abort(); }catch(e){}
   try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio();
   speakLine("ready").then(()=>{ startRec.retried=false; startRec("command"); }); }
 function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE"); return; }
-  if(m==="wake" && (!C.WAKE_WORD_ENABLED || !wakeArmed || document.hidden)) return;
+  if(m==="wake" && (convo || !C.WAKE_WORD_ENABLED || !wakeArmed || document.hidden)) return;
   mode=m; try{ rec&&rec.abort(); }catch(e){}
   const r=new SR(); rec=r; r.lang="en-GB"; r.interimResults=true; r.continuous=(m==="wake"); let finalText="", heard=false;
   r.onstart=()=>{ if(rec!==r) return; listening=true; startRec.okAt=Date.now(); micUI(); };
   r.onspeechstart=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(true); };
   r.onspeechend=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(false); };
   r.onresult=ev=>{ if(rec!==r) return; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
-    micLevel=1; heard=true; wakeFails=0; clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
+    micLevel=1; heard=true; wakeFails=0; if(m==="command"&&convo) convoHeardAt=Date.now(); clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
     if(m==="command"||m==="handoff") setHelmSpeech(true);
     if(m==="command") $("#vb-input").value=(finalText+interim).trim();
     if(m==="wake"){ if(speaking || Date.now()<wakeQuietUntil){ finalText=""; return; }   // never wake on JARVIS's own voice
@@ -1606,9 +1614,10 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
       micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); }
     else if(m==="wake" && e.error!=="no-speech" && e.error!=="aborted") wakeFails++; };
   r.onend=()=>{ if(rec!==r) return; listening=false;
-    if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle"; if(t) sendRequest(t); }
+    if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle"; if(t){ sendRequest(t); convoSent(); } }
     if(mode==="wakesent") mode="idle";
-    if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ if(mode!=="command") mode="idle";
+    if(convo){ if(mode!=="handoff") mode="idle"; }
+    else if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ if(mode!=="command") mode="idle";
       // back off when the recogniser keeps failing (network etc.) instead of spinning
       scheduleWake(speaking?1500:Math.min(30000,300*Math.pow(2,Math.min(wakeFails,7)))); }
     else if(mode!=="handoff") mode="idle";
@@ -1622,7 +1631,49 @@ function setWakeWord(on,fromUser){ C.WAKE_WORD_ENABLED=!!on; try{ localStorage.s
 document.addEventListener("visibilitychange",()=>{ if(document.hidden){ clearTimeout(scheduleWake.t); if(mode==="wake"){ try{ rec&&rec.abort(); }catch(e){} } }
   else if(booted && C.WAKE_WORD_ENABLED && SR && !micBlocked){ wakeArmed=true; if(mode==="idle"||mode==="wake") scheduleWake(400); } });
 async function askMic(){ try{ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return false; const st=await navigator.mediaDevices.getUserMedia({audio:true}); st.getTracks().forEach(t=>t.stop()); return true; }catch(err){ return false; } }
-function talk(){ try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio(); startRec.retried=false; setTimeout(()=>startRec("command"),120); }
+function talk(){ if(convo){ convoEnd("tapped"); return; }
+  try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio(); convoStart("mic"); startRec.retried=false; setTimeout(()=>startRec("command"),120); }
+
+/* ---------- v12.9 conversation mode ----------
+   Mic tap or "Hey Jarvis" (in-page or the Android native engine) opens a conversation: after each reply has finished playing,
+   JARVIS listens again by itself. Tap the mic again to end it. While it is open the wake word is paused (in-page wake recogniser
+   and, in the Android app >= 1.2.0, the native openWakeWord engine). Never listens while JARVIS is talking: listening resumes only
+   after playback has been quiet for CONVO_QUIET_MS. Closes by itself after CONVO_SILENCE_MS without hearing the user. */
+const CONVO_SILENCE_MS=90000, CONVO_REPLY_WAIT_MS=30000, CONVO_QUIET_MS=1200;
+let convoTimer=0, convoHeardAt=0, convoAwait=null, convoAwaitAt=0, convoQuietAt=0, convoHow="";
+function nativeConvo(on){ try{ if(window.JarvisNative&&typeof JarvisNative.setConversation==="function") JarvisNative.setConversation(!!on); }catch(e){} }
+function convoStart(how){
+  convoHeardAt=Date.now(); convoQuietAt=0; convoAwait=null;
+  if(convo) return; convo=true; convoHow=how||"";
+  clearTimeout(scheduleWake.t); if(mode==="wake"){ try{ rec&&rec.abort(); }catch(e){} mode="idle"; }
+  nativeConvo(true); clearInterval(convoTimer); convoTimer=setInterval(convoTick,250);
+  log("Conversation open ("+convoHow+") - tap the mic to end"); window.__jarvisConvo=(window.__jarvisConvo||0)+1; micUI(); }
+function convoEnd(why){
+  if(!convo) return; convo=false; clearInterval(convoTimer); convoTimer=0; convoAwait=null;
+  if(mode==="command"||mode==="handoff"){ const i=$("#vb-input"); if(i) i.value=""; mode="idle"; try{ rec&&rec.abort(); }catch(e){} listening=false; }
+  nativeConvo(false); log("Conversation closed"+(why?" ("+why+")":"")); toast("CONVERSATION CLOSED",1800);
+  if(C.WAKE_WORD_ENABLED&&wakeArmed&&SR) scheduleWake(900);
+  micUI(); }
+function convoSent(){ if(!convo) return; convoHeardAt=Date.now(); convoQuietAt=0; convoAwait=ackReq; convoAwaitAt=Date.now(); }
+function convoBusy(){ return speaking||busyReq||voiceJobDepth>0; }
+function convoTick(){
+  if(!convo) return;
+  const now=Date.now();
+  if(now-(convoTick.hb||0)>30000){ convoTick.hb=now; nativeConvo(true); }   // heartbeat: the APK expires a conversation pause after 150 s without one
+  if(mode==="command"||mode==="handoff"){
+    // JARVIS started talking while we listen and the user has said nothing: stop listening so he never hears himself
+    if(speaking && mode==="command" && !(($("#vb-input")||{}).value||"").trim()){ try{ rec&&rec.abort(); }catch(e){} }
+    return; }
+  if(document.hidden && !IN_APK) return;
+  if(convoBusy()){ convoQuietAt=0; return; }
+  if(convoAwait){ const a=convoAwait;
+    if(a.ts>0 && !a.replied && ackReq===a && now-convoAwaitAt<CONVO_REPLY_WAIT_MS) return;   // reply on its way
+    convoAwait=null; convoQuietAt=0; }
+  if(!convoQuietAt){ convoQuietAt=now; return; }
+  if(now-convoQuietAt<CONVO_QUIET_MS) return;
+  if(now-convoHeardAt>CONVO_SILENCE_MS){ convoEnd("quiet for "+Math.round(CONVO_SILENCE_MS/1000)+" s"); return; }
+  convoQuietAt=0; startRec.retried=false; startRec("command"); }
+document.addEventListener("visibilitychange",()=>{ if(document.hidden && convo && !IN_APK) convoEnd("app hidden"); });
 $("#mic-btn").addEventListener("click",talk); $("#vb-mic").addEventListener("click",talk);
 $("#dock-core").addEventListener("click",e=>{e.preventDefault(); talk();});
 const coreStage=$("#core-stage");
@@ -1661,6 +1712,8 @@ function showTapTalk(why){ const t=$("#tap-talk"); if(!t) return; t.hidden=false
   window.__jarvisTapTalk=(window.__jarvisTapTalk||0)+1; log("Tap to talk ("+why+")"); }
 // straight into LISTENING: chime, sphere to LISTENING, "I'm listening", then capture the request
 function listenNow(){ hideTapTalk(); launchStarted=Date.now(); wakeQuietUntil=Date.now()+1500;
+  if(convo && (mode==="command"||mode==="handoff")) return;   // already listening in this conversation
+  convoStart("hey jarvis");
   try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio();
   wakeChime(); mode="handoff"; listening=true; micUI();
   speakLine("ready").then(()=>{ startRec.retried=false; startRec("command");
@@ -1687,7 +1740,9 @@ async function launchListen(){ clearListenParam();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
-window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+(function(){ const v=$("#brand .ver"); const B=window.JARVIS_BUILD||""; if(v&&B) v.textContent="v"+B;
+  const am=/JarvisAndroid\/([\d.]+)/.exec(navigator.userAgent); log("Build v"+(B||"?")+(am?" · Android app "+am[1]:"")); })();
+window.JARVIS={get build(){return window.JARVIS_BUILD||"";},get convo(){return convo;},startConversation:h=>{ if(!convo){ convoStart(h||"api"); startRec.retried=false; startRec("command"); } },endConversation:w=>convoEnd(w||"api"),get nativeListening(){return nativeLis;},get helmLevel(){return helmLevel;},launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

@@ -1,7 +1,7 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v12.8.1";
+const VERSION = "jarvis-v12.9.0";   // keep in step with assets/build.js (checked by qa/test_v12_9_convo_android.py)
 const SHELL = [
-  "./", "index.html", "config.js", "data.js", "data.json", "manifest.webmanifest",
+  "./", "index.html", "assets/build.js", "config.js", "data.js", "data.json", "manifest.webmanifest",
   "assets/app-v11.css", "assets/app-v11.1.js", "assets/app-v12.js", "assets/phone-v11.css", "assets/email-v12.css", "assets/todo-v12.css", "assets/launch-v12.css", "assets/helmet-v12.css",
   "assets/sphere.js", "assets/vendor/three.min.js",
   "assets/fonts/Orbitron.ttf", "assets/fonts/Rajdhani-Regular.ttf", "assets/fonts/Rajdhani-Medium.ttf",
@@ -21,6 +21,7 @@ const SHELL = [
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
+self.addEventListener("message", e => { if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting(); });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION && !k.startsWith("jarvis-ackbank")).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
@@ -33,7 +34,9 @@ self.addEventListener("fetch", e => {
   const path = url.pathname;
   const fresh = req.mode === "navigate" || /\.(html|js|css|json)$/.test(path) || path.endsWith("/");
   if (fresh) {                                             // network first, cache fallback
-    e.respondWith(fetch(req).then(r => {
+    // v12.9: revalidate with the server (ETag, cheap 304) instead of trusting the 10-minute HTTP cache
+    const net = req.mode === "navigate" ? new Request(req.url, {cache: "no-cache", credentials: "same-origin"}) : new Request(req, {cache: "no-cache"});
+    e.respondWith(fetch(net).then(r => {
       if (r.ok) { const cp = r.clone(); caches.open(VERSION).then(c => c.put(req.mode === "navigate" ? "index.html" : stripQ(req), cp)); }
       return r;
     }).catch(() => caches.match(req.mode === "navigate" ? "index.html" : stripQ(req), {ignoreSearch: true})));

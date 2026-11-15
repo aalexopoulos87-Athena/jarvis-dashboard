@@ -1,5 +1,5 @@
 /* v12.7 — holographic helm mic indicator. v12.7.2 — wireframe contour helm in the JARVIS hologram style.
-   v12.8.1 — contour lines now generated from "Iron Man Helmet, Articulated, Wearable" by Boxandloop, CC BY 4.0 (see CREDITS.md). */
+   v12.9 — visible for the whole conversation (body.convo). v12.8.1 — contour lines now generated from "Iron Man Helmet, Articulated, Wearable" by Boxandloop, CC BY 4.0 (see CREDITS.md). */
 #holo-helm{
   position:absolute;
   right:452px;
@@ -16,7 +16,8 @@
   -webkit-user-select:none;
   user-select:none;
 }
-body.listening #holo-helm{
+body.listening #holo-helm,
+body.convo #holo-helm{
   opacity:1;
   visibility:visible;
   transform:none;
@@ -146,3 +147,14 @@ body.listening #holo-helm{
   }
   #holo-helm.speaking .hh-mesh .hh-r{ opacity:calc(.7 + var(--hh-level) * .3); stroke:#8fe6ff; }
 }
+
+/* v12.9 conversation mode: the helm stays up for the whole conversation (dimmer while JARVIS thinks/talks, full while listening);
+   the mic button shows the conversation is open (tap again to end) in the same cyan hologram style. */
+body.convo:not(.listening) #holo-helm{ opacity:.72; }
+#vb-mic.convo, #mic-btn.convo{
+  border-color:#49d2ff !important;
+  box-shadow:0 0 0 2px rgba(73,210,255,.55), 0 0 18px rgba(26,143,232,.85), inset 0 0 12px rgba(73,210,255,.35) !important;
+  animation:hhConvo 1.8s ease-in-out infinite;
+}
+@keyframes hhConvo{ 0%,100%{ box-shadow:0 0 0 2px rgba(73,210,255,.45), 0 0 12px rgba(26,143,232,.6); } 50%{ box-shadow:0 0 0 4px rgba(73,210,255,.75), 0 0 26px rgba(26,143,232,1); } }
+@media (prefers-reduced-motion:reduce){ #vb-mic.convo, #mic-btn.convo{ animation:none; } }

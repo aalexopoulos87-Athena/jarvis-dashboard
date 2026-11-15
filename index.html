@@ -21,7 +21,8 @@
 <link rel="stylesheet" href="assets/email-v12.css?v=12.2.1">
 <link rel="stylesheet" href="assets/todo-v12.css?v=12.3">
 <link rel="stylesheet" href="assets/launch-v12.css?v=12.5">
-<link rel="stylesheet" href="assets/helmet-v12.css?v=12.8.1">
+<link rel="stylesheet" href="assets/helmet-v12.css?v=12.9.0">
+<script src="assets/build.js?v=12.9.0"></script>
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -32,7 +33,7 @@
 
   <!-- ===== TOP BAR ===== -->
   <header id="m-top">
-  <div id="brand"><span class="logo">JARVIS</span><span class="ver">v2.0</span></div>
+  <div id="brand"><span class="logo">JARVIS</span><span class="ver" title="Build">v12.9.0</span></div>
   <nav id="nav">
     <button class="nav-b active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" class="f"/></svg><span>HOME</span></button>
     <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg><span>MEDIA</span></button>
@@ -703,7 +704,7 @@
 <button type="button" id="tap-talk" hidden aria-label="Tap to talk to JARVIS"><span class="tt-ring"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg></span><span class="tt-t">TAP TO TALK</span><span class="tt-s" id="tt-sub">ONE TAP TO START LISTENING</span></button>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
 <script src="assets/vendor/three.min.js"></script>
-<script src="assets/app-v12.js?v=12.8"></script>
+<script src="assets/app-v12.js?v=12.9.0"></script>
 <script src="assets/sphere.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
@@ -713,9 +714,21 @@
   var pill=document.querySelector(".status-pill"); if(pill){ pill.style.cursor="pointer"; pill.addEventListener("click",openS); }
 })();
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  let hadCtl = !!navigator.serviceWorker.controller, reloaded = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadCtl && !reloaded) { reloaded = true; location.reload(); } });
-  addEventListener("load", () => navigator.serviceWorker.register("sw.js", {updateViaCache: "none"}).then(r => r.update()).catch(e => console.warn("SW", e)));
+  /* v12.9: robust updates (also inside the Android app's WebView): check on load, on every return to the foreground and every
+     30 min; a waiting worker is told to activate at once; the page then reloads once, but never mid-conversation or mid-reply. */
+  let hadCtl = !!navigator.serviceWorker.controller, reloaded = false, reg = null, lastCheck = 0;
+  const busyNow = () => document.body.classList.contains("busy") || document.body.classList.contains("convo") || document.body.classList.contains("listening");
+  const reloadWhenIdle = () => { if (reloaded) return; if (busyNow()) { setTimeout(reloadWhenIdle, 3000); return; } reloaded = true; location.reload(); };
+  const activate = w => { if (w) try { w.postMessage({type: "SKIP_WAITING"}); } catch (e) {} };
+  const check = force => { if (!reg) return; const now = Date.now(); if (!force && now - lastCheck < 60000) return; lastCheck = now; reg.update().catch(() => {}); };
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadCtl) reloadWhenIdle(); hadCtl = true; });
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js", {updateViaCache: "none"}).then(r => {
+    reg = r; window.__jarvisSW = r; activate(r.waiting);
+    r.addEventListener("updatefound", () => { const w = r.installing; if (w) w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) activate(w); }); });
+    check(true); setInterval(() => check(true), 30 * 60000);
+  }).catch(e => console.warn("SW", e)));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(false); });
+  addEventListener("focus", () => check(false));
 }
 </script>
 </body>

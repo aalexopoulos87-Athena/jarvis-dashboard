@@ -249,7 +249,7 @@ async function playExclusiveUrl(url, token){
   hookMedia(a);
   activeMedia=a;
   speaking=true; setBusy();
-  vlog({ev:"start",kind:"mp3"});
+  vlog({ev:"start",kind:"mp3",src:String(url).split("?")[0].slice(-40)});
   const ok=await new Promise(res=>{
     let done=false;
     const fin=good=>{ if(done) return; done=true; clearTimeout(guard); a._jarvisFin=null; if(activeMedia===a) activeMedia=null; speaking=false; setBusy(); res(!!good); };
@@ -437,9 +437,51 @@ function waitForAudio(text, ms){
     const arr=audioWaiters.get(text)||[]; arr.push(rec); audioWaiters.set(text,arr);
   });
 }
+/* v12.3.1 streamed reply audio: the relay publishes part 1 as soon as it is rendered, later parts while it plays,
+   then the full MP3 for older clients. Parts play in order; the full copy is ignored once parts started. */
+const PART_WAIT_MS=20000, PART_RETAIN_MS=300000;
+const audioParts=new Map();
+function partRec(text,create){
+  const now=Date.now();
+  for(const [k,r] of audioParts){ if(now-r.ts>PART_RETAIN_MS) audioParts.delete(k); }
+  let r=audioParts.get(text);
+  if(!r&&create){ r={n:0,urls:{},started:false,ts:now,waiters:{}}; audioParts.set(text,r); }
+  return r||null;
+}
+function offerPart(msg){
+  const r=partRec(msg.text,true); r.ts=Date.now();
+  if(msg.part===1||!r.n||msg.parts<r.n) r.n=msg.parts;
+  r.urls[msg.part]=msg.url;
+  vlog({ev:"mp3-part",k:msg.part,n:msg.parts,text:msg.text});
+  const fire=(k,u)=>{ const w=r.waiters[k]; if(w){ delete r.waiters[k]; w.forEach(f=>f(u)); } };
+  fire(msg.part,msg.url);
+  Object.keys(r.waiters).forEach(k=>{ if(+k>r.n) fire(+k,""); });
+}
+function waitPart(r,k,ms){
+  if(r.urls[k]) return Promise.resolve(r.urls[k]);
+  if(r.n&&k>r.n) return Promise.resolve("");
+  return new Promise(res=>{ let done=false; const f=u=>{ if(done) return; done=true; clearTimeout(t); res(u||""); };
+    const t=setTimeout(()=>f(""),ms); (r.waiters[k]=r.waiters[k]||[]).push(f); });
+}
+async function playWithParts(text,url,token){
+  const r=partRec(text,false), isP1=!!(r&&r.urls[1]===url);
+  if(isP1) r.started=true;
+  const ok=await playExclusiveUrl(url, token);
+  if(!ok||!isP1) return ok;
+  for(let k=2;k<=r.n;k++){
+    if(token!==voiceSeq||!canSpeak()) return true;
+    const u=await waitPart(r,k,PART_WAIT_MS);
+    if(!u){ vlog({ev:"part-missing",k,n:r.n,text}); return true; }
+    if(token!==voiceSeq||!canSpeak()) return true;
+    await playExclusiveUrl(u, token);
+  }
+  return true;
+}
 function offerAudio(msg){
   if(!msg||!msg.url) return;
   if(ttsAlready(msg.text)){ vlog({ev:"drop-mp3",reason:"tts-already",text:msg.text}); return; }
+  if(msg.part){ offerPart(msg); if(msg.part!==1) return; }
+  else { const pr=partRec(msg.text,false); if(pr&&(pr.started||pr.urls[1])){ vlog({ev:"drop-mp3",reason:"full-after-parts",text:msg.text}); return; } }
   if(isAckText(msg.text)){
     if(!requestGen || realReplyGen===requestGen || ackPlayedGen===requestGen || Date.now()-lastRequestAt>ACK_WAIT_MS+400){
       vlog({ev:"drop-ack",reason:"mp3-late-or-unwanted",text:msg.text});
@@ -693,15 +735,15 @@ async function onReply(text,id,knownUrl){
     if(!url) url=takeRecentAudio(text);
     if(token!==voiceSeq || !canSpeak()) return;
     if(ttsAlready(text)){ vlog({ev:"drop-mp3",reason:"tts-already-before-play",text}); return; }
-    if(url){ if(await playExclusiveUrl(url, token)) return; }
+    if(url){ if(await playWithParts(text, url, token)) return; }
     if(token!==voiceSeq || !canSpeak()) return;
     url=takeRecentAudio(text);
-    if(url){ if(await playExclusiveUrl(url, token)) return; }
+    if(url){ if(await playWithParts(text, url, token)) return; }
     const left=AUDIO_WAIT_MS-(Date.now()-arrived);
     if(left>50){
       url=await waitForAudio(text, left);
       if(token!==voiceSeq || !canSpeak()) return;
-      if(url && !ttsAlready(text)){ if(await playExclusiveUrl(url, token)) return; }
+      if(url && !ttsAlready(text)){ if(await playWithParts(text, url, token)) return; }
     }
     if(token!==voiceSeq || !canSpeak() || ttsAlready(text)) return;
     await playExclusiveTts(text, token);
@@ -980,6 +1022,9 @@ loadData(); setInterval(loadData,C.DATA_REFRESH_SECONDS*1000);
 
 /* ---------- uplink (ntfy requests topic -> relay -> Chief of Staff) + replies (ntfy SSE) ---------- */
 const LS_URL="jarvis_webhook_url", LS_KEY="jarvis_webhook_key", LS_TOPIC="jarvis_replies_topic", LS_REQ="jarvis_requests_topic", LS_SEEN="jarvis_ntfy_seen";
+// v12.3.1 fix: these two were lost when v11 was split out of v10, so every live ntfy message threw a ReferenceError in ingestNtfy.
+const ntfySeen=new Set((()=>{ try{ return JSON.parse(localStorage.getItem(LS_SEEN)||"[]"); }catch(e){ return []; } })());
+function rememberNtfy(id){ ntfySeen.add(id); lastSeenId=String(id); try{ localStorage.setItem(LS_SEEN,JSON.stringify([...ntfySeen].slice(-400))); }catch(e){} }
 const SOURCE=C.SOURCE||((/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent))?"phone":"desktop");
 function consumeTopicFragment(){
   const raw=location.hash||"";
@@ -1009,13 +1054,15 @@ function ntfyPayload(ev){
   let data=ev.data;
   try{ data=JSON.parse(ev.data); }catch(e){ const s=String(ev.data).trim(); return s?{id:s,text:s,isAudio:false,url:""}:null; }
   if(!data||data.event==="open"||data.event==="keepalive") return null;
-  const text=String(data.message||data.body||data.text||"").trim();
+  let text=String(data.message||data.body||data.text||"").trim();
   const tags=[].concat(data.tags||[]).map(t=>String(t).toLowerCase());
   const att=data.attachment||null;
   const url=String((att&&(att.url||att.full_url))||data.attachment_url||"").trim();
   const isAudio=tags.includes("jarvis-audio")||String(data.title||"").toLowerCase()==="jarvis-audio"||/\.mp3(\?|$)/i.test(url);
   if(!text&&!url) return null;
-  return {id:String(data.id||data.time||text||url), text, isAudio, url};
+  let part=0, parts=0;   // v12.3.1: streamed reply audio, "[[part k/n]] <full reply text>"
+  if(isAudio){ const m=/^\[\[part (\d+)\/(\d+)\]\]\s*([\s\S]*)$/.exec(text); if(m){ part=+m[1]; parts=+m[2]; text=m[3].trim(); } }
+  return {id:String(data.id||data.time||text||url), text, isAudio, url, part, parts};
 }
 function ingestNtfy(msg){
   if(!msg||ntfySeen.has(msg.id)) return null;
@@ -1129,13 +1176,16 @@ async function catchUpReplies(){
       if(msg.isAudio) leftoverAudio.push(msg);
       else pending.push(msg);
     }
+    leftoverAudio.filter(a=>a.part&&a.url).forEach(offerPart);          // v12.3.1: streamed parts go to the part store
+    const fullAudio=leftoverAudio.filter(a=>!a.part);
     for(const msg of pending){
       let url="";
-      const i=leftoverAudio.findIndex(a=>a.text===msg.text&&a.url);
-      if(i>=0) url=leftoverAudio.splice(i,1)[0].url;
+      const i=fullAudio.findIndex(a=>a.text===msg.text&&a.url);
+      if(i>=0) url=fullAudio.splice(i,1)[0].url;
+      else { const pr=partRec(msg.text,false); if(pr&&pr.urls[1]) url=pr.urls[1]; }
       await onReply(msg.text, msg.id, url);
     }
-    for(const a of leftoverAudio) offerAudio(a);
+    for(const a of fullAudio) offerAudio(a);
   }catch(e){}
   finally{ catchingUp=false; }
 }
@@ -1282,7 +1332,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

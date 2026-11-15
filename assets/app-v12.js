@@ -592,7 +592,7 @@ async function postEmailRequest(payload){
   const req=requestsTopic();
   if(!req){ toast("TAP SETUP TO CONNECT"); holdStatus("TAP SETUP TO CONNECT",true,5000); setEmailError("TAP SETUP TO CONNECT"); return false; }
   noteSentRequest();
-  thinkingChime();
+  // v12.6.1: no chime before replies (owner request)
   holdStatus("UPLINK TO INBOX",false,3000);
   try{
     const r=await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body:JSON.stringify(payload)});
@@ -1193,7 +1193,7 @@ async function sendRequest(text){
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
   noteSentRequest();
-  thinkingChime();
+  // v12.6.1: no chime before replies (owner request)
   const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
   try{
     // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.

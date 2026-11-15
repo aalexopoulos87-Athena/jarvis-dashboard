@@ -566,7 +566,7 @@ let emailHideTimer=null;
 let emailTimer=null, emailGen=0, emailCache={list:null, open:Object.create(null)};
 /* v12.7.1 warm inbox: the last list is kept on the phone and shown the moment INBOX opens; a sync runs in the
    background (one at a time). Lists that arrive while the panel is closed are cached silently. */
-const LS_INBOX="jarvis_inbox_v1", INBOX_CAP="inbox-cache", INBOX_APPV="12.7.1";
+const LS_INBOX="jarvis_inbox_v1", INBOX_CAP="inbox-cache", INBOX_APPV=String(self.JARVIS_BUILD||"");  // real app version from assets/build.js (was a frozen "12.7.1" capability label)
 const INBOX_STALE_MS=10*60*1000;      // background sync on open/launch only when the saved list is older than this
 const INBOX_FRESH_MS=60*1000;         // opening within a minute of a sync just shows the saved list
 let emailPending=0, emailUserWait=false, emailView="", inboxPrefetchAt=0;
@@ -760,10 +760,23 @@ function requestInboxList(o){
 }
 function prefetchInbox(){
   if(document.visibilityState==="hidden" || !requestsTopic()) return;
-  if(inboxAcct!=="default") return;   // background prefetch (like the relay keep-warm) only for the main inbox
-  if(inboxAgeMs()<INBOX_STALE_MS || Date.now()-inboxPrefetchAt<5*60*1000) return;
-  inboxPrefetchAt=Date.now();
-  requestInboxList({});
+  if(Date.now()-inboxPrefetchAt<5*60*1000) return;
+  // Quiet sync of every inbox (not just MAIN) so a tab swipe can show a saved list at once.
+  // Does not touch emailPending, so it cannot block a user-opened inbox.
+  let n=0;
+  INBOX_ACCOUNTS.forEach((x,i)=>{
+    const sv=x.id===inboxAcct?inboxSaved:((inboxState[x.id]&&inboxState[x.id].saved)||loadInboxCache(x.id));
+    const age=sv&&sv.as_of?(Date.now()-Number(sv.as_of)*1000):Infinity;
+    if(sv && age<INBOX_STALE_MS) return;
+    setTimeout(()=>{
+      if(x.id===inboxAcct){ requestInboxList({}); return; }  // sets emailPending so a tap during prefetch is not a second request
+      const p={type:"email_list",account:x.id,limit:15,cap:INBOX_CAP,v:INBOX_APPV};
+      if(sv&&sv.as_of) p.have=sv.as_of;
+      postEmailRequest(p,{quiet:true});
+    }, i*150);
+    n++;
+  });
+  if(n) inboxPrefetchAt=Date.now();
 }
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(prefetchInbox,1500); });
 setTimeout(prefetchInbox,4000);

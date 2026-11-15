@@ -1,5 +1,5 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v12.10.0";   // keep in step with assets/build.js (checked by qa/test_v12_9_convo_android.py)
+const VERSION = "jarvis-v12.10.1";   // keep in step with assets/build.js (checked by qa/test_v12_9_convo_android.py)
 const SHELL = [
   "./", "index.html", "assets/build.js", "config.js", "data.js", "data.json", "manifest.webmanifest",
   "assets/app-v11.css", "assets/app-v11.1.js", "assets/app-v12.js", "assets/phone-v11.css", "assets/email-v12.css", "assets/todo-v12.css", "assets/chat-v12.css", "assets/launch-v12.css", "assets/helmet-v12.css",

@@ -114,7 +114,7 @@ window.JARVIS_AUDIO={
 };
 
 /* ---------- single speaker: one queue, one instance, exclusive output ---------- */
-const AUDIO_WAIT_MS=(()=>{ const n=parseInt(qs.get("audiowait")||"",10); return Number.isFinite(n)&&n>=0?Math.min(60000,n):10000; })();
+const AUDIO_WAIT_MS=(()=>{ const n=parseInt(qs.get("audiowait")||"",10); return Number.isFinite(n)&&n>=0?Math.min(60000,n):20000; })();
 const AUDIO_RETAIN_MS=60000;
 const voiceLog=[];
 function vlog(e){ try{ voiceLog.push(Object.assign({t:Math.round(performance.now())},e)); if(voiceLog.length>300) voiceLog.shift(); }catch(_){ } }
@@ -483,10 +483,8 @@ function offerAudio(msg){
   if(msg.part){ offerPart(msg); if(msg.part!==1) return; }
   else { const pr=partRec(msg.text,false); if(pr&&(pr.started||pr.urls[1])){ vlog({ev:"drop-mp3",reason:"full-after-parts",text:msg.text}); return; } }
   if(isAckText(msg.text)){
-    if(!requestGen || realReplyGen===requestGen || ackPlayedGen===requestGen || Date.now()-lastRequestAt>ACK_WAIT_MS+400){
-      vlog({ev:"drop-ack",reason:"mp3-late-or-unwanted",text:msg.text});
-      return;
-    }
+    vlog({ev:"drop-ack",reason:"unused-mp3",text:msg.text});
+    return;
   }
   const arr=audioWaiters.get(msg.text);
   if(arr&&arr.length){ arr[0].finish(msg.url); return; }
@@ -594,6 +592,7 @@ async function postEmailRequest(payload){
   const req=requestsTopic();
   if(!req){ toast("TAP SETUP TO CONNECT"); holdStatus("TAP SETUP TO CONNECT",true,5000); setEmailError("TAP SETUP TO CONNECT"); return false; }
   noteSentRequest();
+  thinkingChime();
   holdStatus("UPLINK TO INBOX",false,3000);
   try{
     const r=await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body:JSON.stringify(payload)});
@@ -695,41 +694,20 @@ async function onReply(text,id,knownUrl){
     return;
   }
 
+  // v12.6: canned relay acks are no longer used. The app already played thinkingChime()
+  // when the request was sent; ignore any leftover ack text/audio if one still arrives.
+  if(isAckText(text)){
+    vlog({ev:"drop-ack",reason:"unused",text});
+    return;
+  }
   log("JARVIS: "+text);
   holdStatus("NEW REPLY",false,8000);
-  if(isAckText(text)){
-    const gen=requestGen;
-    const age=lastRequestAt?Date.now()-lastRequestAt:1e9;
-    if(!gen || realReplyGen===gen || ackPlayedGen===gen || age>ACK_WAIT_MS){
-      vlog({ev:"drop-ack",reason:!gen?"no-request":(realReplyGen===gen?"real-reply":(ackPlayedGen===gen?"already":"late")),text,age});
-      return;
-    }
-    const primed=knownUrl||takeRecentAudio(text);
-    const left=Math.max(400, ACK_WAIT_MS-age);
-    const urlP=primed?Promise.resolve(primed):waitForAudio(text, left);
-    const job={gen, cancelled:false, started:false};
-    pendingAck=job;
-    return enqueueVoice(async token=>{
-      if(token!==voiceSeq || !canSpeak() || !ackStillWanted(job)){ vlog({ev:"drop-ack",reason:"cancelled-before-start",text}); return; }
-      let url=await urlP;
-      if(!url) url=takeRecentAudio(text);
-      if(token!==voiceSeq || !canSpeak() || !ackStillWanted(job)){ vlog({ev:"drop-ack",reason:"cancelled-before-start",text}); return; }
-      if(!url){ vlog({ev:"drop-ack",reason:"no-mp3",text}); return; }
-      job.started=true;
-      ackPlayedGen=job.gen;
-      if(pendingAck===job) pendingAck=null;
-      vlog({ev:"ack-play",text});
-      await playExclusiveUrl(url, token);
-    });
-  }
   realReplyGen=requestGen;
   if(pendingAck && !pendingAck.started){ pendingAck.cancelled=true; vlog({ev:"drop-ack",reason:"real-reply"}); pendingAck=null; }
   const arrived=Date.now();
   const primed=knownUrl||takeRecentAudio(text);
   const urlP=primed?Promise.resolve(primed):waitForAudio(text, AUDIO_WAIT_MS);
   return enqueueVoice(async token=>{
-    if(token!==voiceSeq || !canSpeak()) return;
-    await playExclusiveCue("done", token);
     if(token!==voiceSeq || !canSpeak() || !text) return;
     let url=await urlP;
     if(!url) url=takeRecentAudio(text);
@@ -746,7 +724,9 @@ async function onReply(text,id,knownUrl){
       if(url && !ttsAlready(text)){ if(await playWithParts(text, url, token)) return; }
     }
     if(token!==voiceSeq || !canSpeak() || ttsAlready(text)) return;
-    await playExclusiveTts(text, token);
+    // v12.6: no phone speechSynthesis fallback (generic device voice). The reply is already on screen.
+    vlog({ev:"reply-silent",reason:"no-mp3",text});
+    holdStatus("REPLY ON SCREEN",false,6000);
   });
 }
 
@@ -880,25 +860,24 @@ function art(kind,night){ // big illustrated weather art, like the cloud+moon in
   const halo=`<circle cx="128" cy="38" r="30" fill="${night?"#bfe3ff":"#ffd36a"}" opacity=".35" filter="url(#wg)"/>`;
   return defs+halo+orb+(kind==="sun"?"":cloud)+rain; }
 const LOC_KEY="jarvis_loc";
+// v12.6: never prompt for location. Default weather/time place is Athens if nothing is cached.
+const DEFAULT_LOC={lat:37.984,lon:23.728,tz:"Europe/Athens",name:"ATHENS, GR",auto:true,fallback:true};
 function savedLoc(){ try{ return JSON.parse(localStorage.getItem(LOC_KEY)||"null"); }catch(e){ return null; } }
 function saveLoc(l){ localStorage.setItem(LOC_KEY,JSON.stringify(l)); }
 async function placeName(lat,lon){ try{ const j=await (await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`)).json();
     const city=j.city||j.locality||j.principalSubdivision||""; return (city+(j.countryCode?", "+j.countryCode:"")).toUpperCase()||"MY LOCATION"; }catch(e){ return "MY LOCATION"; } }
+async function geoAllowed(){ try{ const st=await navigator.permissions.query({name:"geolocation"}); return st&&st.state==="granted"; }catch(e){ return false; } }
 function gps(){ return new Promise(res=>{ if(!navigator.geolocation) return res(null);
   navigator.geolocation.getCurrentPosition(p=>res({lat:+p.coords.latitude.toFixed(3),lon:+p.coords.longitude.toFixed(3)}),()=>res(null),{timeout:10000,maximumAge:3600000}); }); }
-async function locate(ask){ // ask=true only from a tap (boot or SETUP)
-  let l=savedLoc(); if(l&&l.lat!=null&&!l.auto) return l;
+async function locate(){
+  let l=savedLoc(); if(l&&l.lat!=null&&!l.auto) return l;   // a city the user typed in SETUP
   if(C.WEATHER&&C.WEATHER.lat!=null) return C.WEATHER;
-  let allowed=false; try{ allowed=(await navigator.permissions.query({name:"geolocation"})).state==="granted"; }catch(e){}
-  if(ask||allowed){ const g=await gps(); if(g){ l={...g,name:await placeName(g.lat,g.lon),auto:true}; saveLoc(l); return l; } }
-  if(l&&l.lat!=null) return l;
-  const ip=await ipLoc(); if(ip){ saveLoc(ip); return ip; }   // no GPS: approximate area from the network
-  return null; }
-async function ipLoc(){ try{ const j=await (await fetch("https://get.geojs.io/v1/ip/geo.json")).json();
-    if(!j||j.latitude==null) return null;
-    return {lat:+(+j.latitude).toFixed(3),lon:+(+j.longitude).toFixed(3),tz:j.timezone||"auto",
-      name:((j.city||j.region||"")+(j.country_code?", "+j.country_code:"")).toUpperCase()||"MY AREA",auto:true}; }catch(e){ return null; } }
-async function weather(ask){ const W=await locate(ask);
+  // Only call the geolocation API when the permission is already "granted". Never prompt on boot, SETUP, or anywhere else.
+  if(await geoAllowed()){ const g=await gps(); if(g){ l={...g,name:await placeName(g.lat,g.lon),auto:true}; saveLoc(l); return l; } }
+  if(l&&l.lat!=null) return l;   // last known cached position
+  return DEFAULT_LOC;
+}
+async function weather(){ const W=await locate();
   if(!W){ $("#w-loc").textContent="NO LOCATION"; $("#w-d").textContent="TAP SETUP TO SET A CITY"; $("#w-art").innerHTML=art("cloud",true); return; }
   $("#w-loc").textContent=W.name||"LOCAL";
   try{ const u=`https://api.open-meteo.com/v1/forecast?latitude=${W.lat}&longitude=${W.lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=${encodeURIComponent(W.tz||"auto")}&forecast_days=6`;
@@ -911,13 +890,13 @@ async function weather(ask){ const W=await locate(ask);
   }catch(e){ $("#w-d").textContent="WEATHER OFFLINE"; $("#w-art").innerHTML=art("cloud",true); } }
 async function setupLocationFromField(city){
   city=(city||"").trim();
-  if(!city){ localStorage.removeItem(LOC_KEY); toast("USING DEVICE LOCATION"); return weather(true); }
+  if(!city){ localStorage.removeItem(LOC_KEY); toast("USING SAVED OR ATHENS DEFAULT"); return weather(); }
   try{ const j=await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(city)}`)).json();
     const r=j.results&&j.results[0]; if(!r){ toast("CITY NOT FOUND"); return; }
     saveLoc({name:(r.name+(r.country_code?", "+r.country_code:"")).toUpperCase(),lat:r.latitude,lon:r.longitude,tz:r.timezone}); toast("WEATHER: "+r.name.toUpperCase()); weather();
   }catch(e){ toast("WEATHER OFFLINE"); } }
 async function setupLocation(){ openSetup(); }
-weather(false); setInterval(()=>weather(false),15*60*1000);
+weather(); setInterval(()=>weather(),15*60*1000);
 
 /* ---------- v12.3 to-do pop-up: tap a "Waiting on you" / "Fleet today" item ---------- */
 let todoData={wait:[],fleet:[],example:false,updated:""}, todoCur=null, todoHideTimer=null, todoAskLock=0;
@@ -1214,6 +1193,7 @@ async function sendRequest(text){
   busyReq=true; setBusy(); holdStatus("TRANSMITTING",false,2000);
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
   noteSentRequest();
+  thinkingChime();
   const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
   try{
     // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.
@@ -1310,6 +1290,14 @@ function micUI(){ $("#p-mic").classList.toggle("listening",listening&&(mode==="c
 function scheduleWake(delay){ clearTimeout(scheduleWake.t);
   scheduleWake.t=setTimeout(()=>{ if(C.WAKE_WORD_ENABLED && wakeArmed && !document.hidden && mode!=="command" && mode!=="handoff") startRec("wake"); },delay); }
 // Wake phrase heard: short cue, sphere to LISTENING, then either send the words that followed it or listen for the request.
+// v12.6: short, soft, gold "thinking" chime when a request is sent (generated, not voiced; quiet, under 0.5 s)
+function thinkingChime(){ if(muted) return; try{ const ac=audioCtx(); if(!ac) return; if(ac.state==="suspended") ac.resume();
+  const t=ac.currentTime, g=ac.createGain(); g.connect(ac.destination);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.06,t+0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
+  [[659.25,0],[830.61,0.08]].forEach(([f,d])=>{ const o=ac.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t+d); o.connect(g); o.start(t+d); o.stop(t+d+0.34); });
+  window.__jarvisThinkChimes=(window.__jarvisThinkChimes||0)+1; }catch(e){} }
 // short rising two-tone chime (Web Audio, no file) so the wake hit is acknowledged instantly
 function wakeChime(){ if(muted) return; try{ const ac=audioCtx(); if(!ac) return; if(ac.state==="suspended") ac.resume();
   const t=ac.currentTime, g=ac.createGain(); g.connect(ac.destination); g.gain.setValueAtTime(0.0001,t);
@@ -1363,7 +1351,7 @@ if(coreStage) coreStage.addEventListener("click",()=>{ if(document.body.classLis
 $("#t-fs").addEventListener("click",e=>{e.preventDefault(); document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});});
 $("#power").addEventListener("click",()=>{ if(document.fullscreenElement) document.exitFullscreen(); });
 $("#t-mute").addEventListener("click",e=>{e.preventDefault(); muted=!muted; $("#t-mute-l").textContent=muted?"MUTED":"SOUND"; if(muted){ try{speechSynthesis.cancel();}catch(_){} stopReplyAudio(); } });
-$("#t-test").addEventListener("click",async e=>{e.preventDefault(); await cue("online"); await say("Voice check complete. This is how I will read your replies, sir.");});
+$("#t-test").addEventListener("click",async e=>{e.preventDefault(); await cue("online");});
 addEventListener("keydown",e=>{ if(e.key==="F2") talk(); });
 micUI();
 
@@ -1372,7 +1360,7 @@ bindSetup();
 /* ---------- boot (one click needed for sound + full screen) ---------- */
 async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) return; b.classList.add("hide"); booted=true; acquireWakeLock();
   try{ if(!qs.has("nofs")) await document.documentElement.requestFullscreen(); }catch(e){}
-  log("System online"); weather(true); if(C.PLAY_STARTUP_GREETING) await speakLine("boot");
+  log("System online"); weather(); if(C.PLAY_STARTUP_GREETING) await speakLine("boot");
   if(SR&&C.WAKE_WORD_ENABLED){ wakeArmed=true; if(mode==="idle") startRec("wake"); } micUI(); }
 $("#boot").addEventListener("click",boot);
 
@@ -1400,7 +1388,7 @@ function listenNow(){ hideTapTalk(); launchStarted=Date.now(); wakeQuietUntil=Da
     const t0=launchStarted; setTimeout(()=>{ if(launchStarted===t0 && !(startRec.okAt>=t0)) showTapTalk("no-mic-start"); },2500); }); }
 async function launchListen(){ clearListenParam();
   const b=$("#boot"); if(b) b.classList.add("hide"); booted=true; acquireWakeLock();
-  log("System online"); log("Opened to listen"); weather(false);
+  log("System online"); log("Opened to listen"); weather();
   if(SR&&C.WAKE_WORD_ENABLED) wakeArmed=true;
   if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME"); return; }
   const [mic,audioOk]=await Promise.all([micPermission(), audioAllowed()]);
@@ -1420,7 +1408,7 @@ async function launchListen(){ clearListenParam();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
-window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

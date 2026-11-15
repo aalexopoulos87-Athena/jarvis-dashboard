@@ -498,6 +498,24 @@ let EMAIL_WAIT_MS=45000;   // v12.2: real routine replies take ~15-25 s; was 18 
 const EMAIL_SLIDE_MS=400;   // v12.2: slide in/out over the sphere
 let emailHideTimer=null;
 let emailTimer=null, emailGen=0, emailCache={list:null, open:Object.create(null)};
+/* v12.7.1 warm inbox: the last list is kept on the phone and shown the moment INBOX opens; a sync runs in the
+   background (one at a time). Lists that arrive while the panel is closed are cached silently. */
+const LS_INBOX="jarvis_inbox_v1", INBOX_CAP="inbox-cache", INBOX_APPV="12.7.1";
+const INBOX_STALE_MS=10*60*1000;      // background sync on open/launch only when the saved list is older than this
+const INBOX_FRESH_MS=60*1000;         // opening within a minute of a sync just shows the saved list
+let emailPending=0, emailUserWait=false, emailView="", inboxPrefetchAt=0;
+function loadInboxCache(){ try{ const o=JSON.parse(localStorage.getItem(LS_INBOX)||"null"); if(o&&o.data&&Array.isArray(o.data.emails)) return o; }catch(e){} return null; }
+let inboxSaved=loadInboxCache(); if(inboxSaved) emailCache.list=inboxSaved.data;
+function saveInboxCache(data){
+  const as_of=Number(data&&data.as_of)||Math.floor(Date.now()/1000);
+  const keep=Object.assign({},data); delete keep.cached; delete keep.refreshing; delete keep.unchanged;
+  inboxSaved={as_of,data:keep}; emailCache.list=keep;
+  try{ localStorage.setItem(LS_INBOX,JSON.stringify(inboxSaved)); }catch(e){}
+}
+function inboxAgeMs(){ return inboxSaved? Math.max(0,Date.now()-inboxSaved.as_of*1000) : Infinity; }
+function inboxAgo(){ const m=Math.round(inboxAgeMs()/60000); return m<1?"JUST NOW":m<60?m+" MIN AGO":Math.round(m/60)+" H AGO"; }
+function emailPanelVisible(){ const p=$("#email-panel"); return !!p && !p.hidden && !p.classList.contains("ep-closing"); }
+function inboxStatus(syncing){ if(emailView==="list" && emailCache.list) setEmailMode("ready","UPDATED "+inboxAgo()+(syncing?" · SYNCING…":"")); }
 
 function isEmailJson(text){ return String(text||"").trim().startsWith(EMAIL_PREFIX); }
 function parseEmailJson(text){
@@ -559,7 +577,7 @@ function setEmailMode(mode, status){
   if(st){ st.textContent=status||""; st.hidden=!status; }
 }
 function setEmailLoading(msg){
-  showEmailPanel();
+  showEmailPanel(); emailView="loading";
   setEmailMode("loading", msg||"ESTABLISHING UPLINK…");
   const list=$("#ep-list"), det=$("#ep-detail"), back=$("#ep-back");
   if(list) list.hidden=true;
@@ -577,6 +595,8 @@ function setEmailError(msg){
   if(det) det.hidden=true;
 }
 function setEmailTimeout(){
+  emailPending=0; emailUserWait=false;
+  if(emailView==="list" && emailCache.list){ setEmailMode("ready","SHOWING SAVED INBOX · "+inboxAgo()+" · LIVE SYNC TIMED OUT"); return; }
   showEmailPanel();
   setEmailMode("timeout", "NO REPLY FROM THE UPLINK. TRY AGAIN, SIR.");
   const list=$("#ep-list"), det=$("#ep-detail");
@@ -588,8 +608,14 @@ function armEmailWait(){
   clearTimeout(emailTimer);
   emailTimer=setTimeout(()=>{ if(gen===emailGen) setEmailTimeout(); }, EMAIL_WAIT_MS);
 }
-async function postEmailRequest(payload){
+async function postEmailRequest(payload,opt){
   const req=requestsTopic();
+  const quiet=!!(opt&&opt.quiet);
+  if(quiet){
+    if(!req) return false;
+    try{ const r=await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body:JSON.stringify(payload)}); if(!r.ok) throw new Error("HTTP "+r.status); vlog({ev:"inbox-prefetch"}); return true; }
+    catch(e){ emailPending=0; return false; }
+  }
   if(!req){ toast("TAP SETUP TO CONNECT"); holdStatus("TAP SETUP TO CONNECT",true,5000); setEmailError("TAP SETUP TO CONNECT"); return false; }
   noteSentRequest();
   // v12.6.1: no chime before replies (owner request)
@@ -600,17 +626,41 @@ async function postEmailRequest(payload){
     log("Inbox request sent");
     return true;
   }catch(e){
+    if(payload&&payload.type==="email_list") emailPending=0;
+    if(payload&&payload.type==="email_list" && emailView==="list" && emailCache.list){ setEmailMode("ready","SHOWING SAVED INBOX · "+inboxAgo()+" · UPLINK ERROR"); return false; }
     toast("UPLINK ERROR"); holdStatus("UPLINK ERROR",true,5000); speakLine("error");
     setEmailError("Uplink error.");
     return false;
   }
 }
-function openInbox(){
+function openInbox(force){
   if(typeof closeTodo==="function") closeTodo();
-  setEmailLoading();
-  armEmailWait();
-  return postEmailRequest({type:"email_list",account:"default",limit:15});
+  force=force===true;
+  if(emailCache.list){
+    showEmailPanel(); renderEmailList(emailCache.list);
+    if(!force && inboxAgeMs()<INBOX_FRESH_MS){ inboxStatus(false); return Promise.resolve(true); }
+    inboxStatus(true);
+  } else { setEmailLoading(); emailView="loading"; }
+  return requestInboxList({user:true, force});
 }
+function requestInboxList(o){
+  o=o||{};
+  if(o.user){ emailUserWait=true; armEmailWait(); }
+  if(emailPending && Date.now()-emailPending<EMAIL_WAIT_MS){ vlog({ev:"inbox-dedupe"}); return Promise.resolve(true); }   // one in flight at a time
+  emailPending=Date.now();
+  const p={type:"email_list",account:"default",limit:15,cap:INBOX_CAP,v:INBOX_APPV};
+  if(o.force) p.refresh=1;
+  if(inboxSaved&&inboxSaved.as_of&&emailCache.list) p.have=inboxSaved.as_of;
+  return postEmailRequest(p,{quiet:!o.user});
+}
+function prefetchInbox(){
+  if(document.visibilityState==="hidden" || !requestsTopic()) return;
+  if(inboxAgeMs()<INBOX_STALE_MS || Date.now()-inboxPrefetchAt<5*60*1000) return;
+  inboxPrefetchAt=Date.now();
+  requestInboxList({});
+}
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(prefetchInbox,1500); });
+setTimeout(prefetchInbox,4000);
 function openEmail(id){
   if(!id) return;
   if(emailCache.open[id]){ renderEmailDetail(emailCache.open[id]); return; }
@@ -618,7 +668,31 @@ function openEmail(id){
   armEmailWait();
   return postEmailRequest({type:"email_open",id:String(id)});
 }
+function handleEmailList(data){
+  const wanted=emailUserWait, visible=emailPanelVisible();
+  const done=()=>{ emailGen++; clearTimeout(emailTimer); emailTimer=null; emailUserWait=false; };
+  if(data.ok===false){
+    emailPending=0;
+    if(!wanted) return;
+    done();
+    if(emailCache.list){ showEmailPanel(); renderEmailList(emailCache.list); setEmailMode("ready","SHOWING SAVED INBOX · "+inboxAgo()+" · LIVE SYNC FAILED"); return; }
+    setEmailError(data.error||"The uplink could not retrieve that, sir."); return;
+  }
+  const refreshing=!!(data.cached && data.refreshing);
+  if(!refreshing) emailPending=0;
+  if(data.unchanged){
+    if(inboxSaved && Number(data.as_of)>inboxSaved.as_of){ inboxSaved.as_of=Number(data.as_of); try{ localStorage.setItem(LS_INBOX,JSON.stringify(inboxSaved)); }catch(e){} }
+  } else {
+    if(data.cached && inboxSaved && Number(data.as_of)<inboxSaved.as_of) {}           // older than what we hold
+    else saveInboxCache(data);
+  }
+  if(!wanted && !(visible && emailView==="list")) return;                             // background sync: cache only
+  if(!refreshing) done();
+  if(emailView==="detail" && !wanted) return;
+  showEmailPanel(); renderEmailList(emailCache.list||data); inboxStatus(refreshing);
+}
 function handleEmailPayload(data){
+  if(data && data.type==="email_list" && !data.email) return handleEmailList(data);
   emailGen++;
   clearTimeout(emailTimer); emailTimer=null;
   showEmailPanel();
@@ -642,6 +716,7 @@ function handleEmailPayload(data){
 function renderEmailList(data){
   const emails=Array.isArray(data&&data.emails)?data.emails:[];
   const list=$("#ep-list"), det=$("#ep-detail"), back=$("#ep-back"), title=$("#ep-title");
+  emailView="list";
   setEmailMode("ready", emails.length?"":"INBOX EMPTY");
   if(title) title.textContent="INBOX"+(emails.length?"  ·  "+emails.length:"");
   if(back) back.hidden=true;
@@ -666,6 +741,7 @@ function showEmailList(){
 function renderEmailDetail(mail){
   if(!mail) return;
   showEmailPanel();
+  emailView="detail";
   setEmailMode("ready","");
   const list=$("#ep-list"), det=$("#ep-detail"), back=$("#ep-back"), title=$("#ep-title");
   if(list) list.hidden=true;
@@ -1242,7 +1318,7 @@ function bindSetup(){
   const dockMail=$("#dock-mail"); if(dockMail) dockMail.addEventListener("click",e=>{e.preventDefault(); openInbox();});
   const epClose=$("#ep-close"); if(epClose) epClose.addEventListener("click",e=>{e.preventDefault(); closeInbox();});
   const epBack=$("#ep-back"); if(epBack) epBack.addEventListener("click",e=>{e.preventDefault(); showEmailList();});
-  const epRefresh=$("#ep-refresh"); if(epRefresh) epRefresh.addEventListener("click",e=>{e.preventDefault(); openInbox();});
+  const epRefresh=$("#ep-refresh"); if(epRefresh) epRefresh.addEventListener("click",e=>{e.preventDefault(); openInbox(true);});
   const epList=$("#ep-list"); if(epList) epList.addEventListener("click",e=>{
     const li=e.target.closest("li[data-id]"); if(li) openEmail(li.getAttribute("data-id"));
   });
@@ -1480,7 +1556,7 @@ async function launchListen(){ clearListenParam();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
-window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

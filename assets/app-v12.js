@@ -801,8 +801,8 @@ if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pi
 
 /* ---------- state helpers ---------- */
 let busyReq=false, listening=false, mode="idle";
-function setBusy(){ const b=speaking||busyReq||(listening&&mode==="command"); document.body.classList.toggle("busy",b);
-  $("#core-sub").textContent = (listening&&mode==="command")?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING":"STANDING BY"; }
+function setBusy(){ const lis=(listening&&mode==="command")||mode==="handoff"; const b=speaking||busyReq||lis; document.body.classList.toggle("busy",b); document.body.classList.toggle("listening",lis);
+  $("#core-sub").textContent = lis?"LISTENING": speaking?"SPEAKING": busyReq?"PROCESSING":"STANDING BY"; }
 function toast(t,ms=3200){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show"),ms); }
 function setStatus(t,warn){ $("#status-txt").textContent=t; $(".status-pill").classList.toggle("warn",!!warn); }
 /* uplink status set after bindSetup */
@@ -856,7 +856,7 @@ function topwave(cv,amp,t){ const x=cv.getContext("2d"),W=cv.width,H=cv.height; 
   for(let i=0;i<n;i++){ const c=1-Math.abs(i-n/2)/(n/2); const v=(.08+.92*Math.pow(c,2.2))*(.35+.65*Math.abs(Math.sin(i*.9+t*4)*Math.cos(i*.31-t*2.3)))*amp;
     const h=Math.max(1.5,v*H); x.fillRect(i*bw,(H-h)/2,bw-1.2,h); }
   x.fillRect(0,H/2-.5,W,1); }
-function frame(ts){ const t=STATIC?1.3:ts/1000; const target=(speaking||busyReq||(listening&&mode==="command"))?1:.4; level+=(target-level)*.05;
+function frame(ts){ const t=STATIC?1.3:ts/1000; const target=(speaking||busyReq||(listening&&mode==="command")||mode==="handoff")?1:.4; level+=(target-level)*.05;
   const act=Math.max(level,micLevel);
   const tw=$("#topwave"), mw=$("#micwave");
   if(tw) topwave(tw,.5+.5*act,t); if(mw) bars(mw,40,.4+.6*act,t);
@@ -1234,6 +1234,7 @@ function openSetup(){
   if(cityRow){ const show=typeof setupLocationFromField==="function"; cityRow.hidden=!show;
     if(show&&city){ try{ const l=JSON.parse(localStorage.getItem("jarvis_loc")||"null"); city.value=(l&&!l.auto&&l.name)?l.name:""; }catch(e){ city.value=""; } } }
   const aw=$("#su-awake"); if(aw) aw.checked=keepAwakeOn();
+  const wk=$("#su-wake"); if(wk) wk.checked=!!C.WAKE_WORD_ENABLED;
   ov.hidden=false;
 }
 function closeSetup(){ const ov=$("#setup"); if(ov) ov.hidden=true; }
@@ -1272,36 +1273,85 @@ function bindSetup(){
   const form=$("#setup-card"); if(form) form.addEventListener("submit",saveSetup);
   const ov=$("#setup"); if(ov) ov.addEventListener("click",e=>{ if(e.target===ov) closeSetup(); });
   const aw=$("#su-awake"); if(aw){ aw.checked=keepAwakeOn(); aw.addEventListener("change",()=>applyKeepAwake(!!aw.checked)); }
+  const wk=$("#su-wake"); if(wk){ wk.addEventListener("change",()=>setWakeWord(!!wk.checked,true)); }
   startReplies();
 }
 
-/* ---------- speech recognition: mic tile + wake word ---------- */
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null, wakeArmed=false, micBlocked=false;
+/* ---------- speech recognition: mic tile + "Hey Jarvis" wake word (v12.4) ---------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let rec=null, wakeArmed=false, micBlocked=false, booted=false;
 const cap=s=>s.toUpperCase();
-function micUI(){ $("#p-mic").classList.toggle("listening",listening&&mode==="command");
-  $("#mic-state").textContent = mode==="command"?"LISTENING…":"JARVIS ONLINE";
-  const mh=$("#m-hint"); if(mh) mh.textContent = !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": mode==="command"?"LISTENING… SPEAK YOUR REQUEST":"TAP THE MIC OR THE SPHERE TO TALK";
-  $("#mic-hint").textContent = !SR?"VOICE INPUT NEEDS CHROME OR EDGE": mode==="command"?"SPEAK YOUR REQUEST": (C.WAKE_WORD_ENABLED&&!micBlocked?`SAY "${cap(C.WAKE_WORD)}" TO ACTIVATE`:"CLICK THE MIC TO TALK");
+const LS_WAKE="jarvis_wake_word";
+const WAKE_LABEL="HEY JARVIS";
+// "hey jarvis" and close mishearings anywhere in an utterance; bare "jarvis" only at the start of one.
+const WAKE_NAME="(?:jarvis|jarviss|jarvas|jarvus|jervis|javis|jarvi)";
+const WAKE_ANY=new RegExp("(?:^|\\s)(?:hey|hay|hei|heh|ey|eh|ay|a|hi|okay|ok)\\s+"+WAKE_NAME+"(?=\\s|$)");
+const WAKE_START=new RegExp("^"+WAKE_NAME+"(?=\\s|$)");
+// same-length normalisation, so the match position maps back onto the original words (case + punctuation kept)
+function normWake(s){ return (s||"").replace(/[^A-Za-z0-9'\s]/g," ").replace(/\s/g," ").toLowerCase(); }
+// Returns null (no wake phrase) or {rest:"<words after the wake phrase>"}.
+function matchWake(text){ text=text||""; const n=normWake(text), lead=n.length-n.replace(/^ +/,"").length, t=n.slice(lead);
+  if(!t.trim()) return null;
+  let m=WAKE_ANY.exec(t), end=-1;
+  if(m) end=m.index+m[0].length; else { m=WAKE_START.exec(t); if(m) end=m[0].length; }
+  if(end<0) return null;
+  return {rest:text.slice(lead+end).replace(/^[\s,.!?;:\-]+/,"").replace(/\s+/g," ").trim()}; }
+function wakePref(){ try{ const v=localStorage.getItem(LS_WAKE); if(v==="1") return true; if(v==="0") return false; }catch(e){} return C.WAKE_WORD_ENABLED!==false; }
+C.WAKE_WORD_ENABLED=wakePref();
+let wakeQuietUntil=0, wakeFails=0;
+function micUI(){ $("#p-mic").classList.toggle("listening",listening&&(mode==="command"||mode==="handoff"));
+  $("#mic-state").textContent = (mode==="command"||mode==="handoff")?"LISTENING…":"JARVIS ONLINE";
+  const wakeOn=C.WAKE_WORD_ENABLED&&!micBlocked&&!!SR;
+  const mh=$("#m-hint"); if(mh) mh.textContent = !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
+  $("#mic-hint").textContent = !SR?"VOICE INPUT NEEDS CHROME OR EDGE": (mode==="command"||mode==="handoff")?"SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" TO ACTIVATE`:"CLICK THE MIC TO TALK";
+  document.body.classList.toggle("wake-on",wakeOn&&wakeArmed);
   setBusy(); }
+function scheduleWake(delay){ clearTimeout(scheduleWake.t);
+  scheduleWake.t=setTimeout(()=>{ if(C.WAKE_WORD_ENABLED && wakeArmed && !document.hidden && mode!=="command" && mode!=="handoff") startRec("wake"); },delay); }
+// Wake phrase heard: short cue, sphere to LISTENING, then either send the words that followed it or listen for the request.
+// short rising two-tone chime (Web Audio, no file) so the wake hit is acknowledged instantly
+function wakeChime(){ if(muted) return; try{ const ac=audioCtx(); if(!ac) return; if(ac.state==="suspended") ac.resume();
+  const t=ac.currentTime, g=ac.createGain(); g.connect(ac.destination); g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.18,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.26);
+  [[660,0],[990,0.09]].forEach(([f,d])=>{ const o=ac.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f,t+d); o.connect(g); o.start(t+d); o.stop(t+d+0.17); });
+  window.__jarvisChimes=(window.__jarvisChimes||0)+1; }catch(e){} }
+function onWake(rest){ wakeQuietUntil=Date.now()+1500; log("Wake word heard"); wakeChime();
+  if(rest.split(/\s+/).filter(Boolean).length>=2){ mode="wakesent"; try{ rec.abort(); }catch(e){} sendRequest(rest); return; }
+  mode="handoff"; listening=true; micUI(); try{ rec.abort(); }catch(e){}
+  try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio();
+  speakLine("ready").then(()=>{ startRec.retried=false; startRec("command"); }); }
 function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE"); return; }
+  if(m==="wake" && (!C.WAKE_WORD_ENABLED || !wakeArmed || document.hidden)) return;
   mode=m; try{ rec&&rec.abort(); }catch(e){}
-  rec=new SR(); rec.lang="en-GB"; rec.interimResults=true; rec.continuous=(m==="wake"); let finalText="";
-  rec.onstart=()=>{listening=true; micUI();};
-  rec.onresult=ev=>{ let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
-    micLevel=1; clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
+  const r=new SR(); rec=r; r.lang="en-GB"; r.interimResults=true; r.continuous=(m==="wake"); let finalText="", heard=false;
+  r.onstart=()=>{ if(rec!==r) return; listening=true; micUI(); };
+  r.onresult=ev=>{ if(rec!==r) return; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
+    micLevel=1; heard=true; wakeFails=0; clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
     if(m==="command") $("#vb-input").value=(finalText+interim).trim();
-    if(m==="wake"){ const all=(finalText+interim), w=C.WAKE_WORD.toLowerCase(), idx=all.toLowerCase().lastIndexOf(w);
-      if(idx>=0 && ev.results[ev.results.length-1].isFinal){ const rest=all.slice(idx+w.length).replace(/^[\s,.!?]+/,"").trim(); finalText="";
-        if(rest.split(/\s+/).filter(Boolean).length>=2) sendRequest(rest); else { mode="handoff"; rec.abort(); speakLine("ready").then(()=>startRec("command")); } } } };
-  rec.onerror=e=>{ if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){ wakeArmed=false;
+    if(m==="wake"){ if(speaking || Date.now()<wakeQuietUntil){ finalText=""; return; }   // never wake on JARVIS's own voice
+      const last=ev.results[ev.results.length-1]; if(!last.isFinal) return;
+      // check each final result as its own utterance so bare "jarvis" only counts at the start of one
+      let hit=null; for(let i=ev.resultIndex;i<ev.results.length;i++){ if(ev.results[i].isFinal){ hit=matchWake(ev.results[i][0].transcript); if(hit) break; } }
+      finalText=""; if(hit) onWake(hit.rest); } };
+  r.onerror=e=>{ if(rec!==r) return; if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture"){ wakeArmed=false;
       if(m==="command" && !startRec.retried){ startRec.retried=true; askMic().then(ok=>{ if(ok){ micBlocked=false; setTimeout(()=>startRec("command"),250); } else { micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } }); return; }
-      micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); } };
-  rec.onend=()=>{ listening=false;
+      micBlocked=true; toast("MIC BLOCKED ("+e.error+") - CHROME SITE SETTINGS > MICROPHONE"); }
+    else if(m==="wake" && e.error!=="no-speech" && e.error!=="aborted") wakeFails++; };
+  r.onend=()=>{ if(rec!==r) return; listening=false;
     if(m==="command"){ const t=$("#vb-input").value.trim(); mode="idle"; if(t) sendRequest(t); }
-    if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ setTimeout(()=>{ if(mode!=="command"&&mode!=="handoff") startRec("wake"); },speaking?1500:300); }
+    if(mode==="wakesent") mode="idle";
+    if(mode!=="handoff" && C.WAKE_WORD_ENABLED && wakeArmed){ if(mode!=="command") mode="idle";
+      // back off when the recogniser keeps failing (network etc.) instead of spinning
+      scheduleWake(speaking?1500:Math.min(30000,300*Math.pow(2,Math.min(wakeFails,7)))); }
     else if(mode!=="handoff") mode="idle";
     micUI(); };
-  try{ rec.start(); }catch(e){} }
+  try{ r.start(); }catch(e){} }
+function setWakeWord(on,fromUser){ C.WAKE_WORD_ENABLED=!!on; try{ localStorage.setItem(LS_WAKE,on?"1":"0"); }catch(e){}
+  if(on){ micBlocked=false; if(booted&&SR){ wakeArmed=true; wakeFails=0; if(mode==="idle"||mode==="wake") startRec("wake"); } if(fromUser) log('Wake word "Hey Jarvis" on'); }
+  else { wakeArmed=false; clearTimeout(scheduleWake.t); if(mode==="wake"){ try{ rec&&rec.abort(); }catch(e){} mode="idle"; } if(fromUser) log("Wake word off"); }
+  micUI(); }
+// Chrome stops the mic when the app is hidden; pick it back up when it returns to the foreground.
+document.addEventListener("visibilitychange",()=>{ if(document.hidden){ clearTimeout(scheduleWake.t); if(mode==="wake"){ try{ rec&&rec.abort(); }catch(e){} } }
+  else if(booted && C.WAKE_WORD_ENABLED && SR && !micBlocked){ wakeArmed=true; if(mode==="idle"||mode==="wake") scheduleWake(400); } });
 async function askMic(){ try{ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return false; const st=await navigator.mediaDevices.getUserMedia({audio:true}); st.getTracks().forEach(t=>t.stop()); return true; }catch(err){ return false; } }
 function talk(){ try{ speechSynthesis.cancel(); }catch(e){} stopReplyAudio(); startRec.retried=false; setTimeout(()=>startRec("command"),120); }
 $("#mic-btn").addEventListener("click",talk); $("#vb-mic").addEventListener("click",talk);
@@ -1318,10 +1368,10 @@ micUI();
 bindSetup();
 
 /* ---------- boot (one click needed for sound + full screen) ---------- */
-async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) return; b.classList.add("hide"); acquireWakeLock();
+async function boot(){ const b=$("#boot"); if(b.classList.contains("hide")) return; b.classList.add("hide"); booted=true; acquireWakeLock();
   try{ if(!qs.has("nofs")) await document.documentElement.requestFullscreen(); }catch(e){}
   log("System online"); weather(true); if(C.PLAY_STARTUP_GREETING) await speakLine("boot");
-  if(SR&&C.WAKE_WORD_ENABLED){ wakeArmed=true; startRec("wake"); } }
+  if(SR&&C.WAKE_WORD_ENABLED){ wakeArmed=true; if(mode==="idle") startRec("wake"); } micUI(); }
 $("#boot").addEventListener("click",boot);
 
 /* ---------- phone: card dots for the swipeable panels ---------- */
@@ -1332,7 +1382,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

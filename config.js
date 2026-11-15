@@ -29,9 +29,9 @@ window.JARVIS_CONFIG = {
   USE_24H: true,
 
   // Speech
-  WAKE_WORD: "jarvis",          // say "Jarvis ..." to send a request hands-free
-  WAKE_WORD_ENABLED: true,      // false = mic tile is push-to-talk only
-  WAKE_WORD_ON_MOBILE: false,   // phones: always-on listening beeps and drains battery, so tap-to-talk by default
+  WAKE_WORD: "hey jarvis",      // say "Hey Jarvis ..." (or start with "Jarvis ...") while the app is open
+  WAKE_WORD_ENABLED: true,      // default; the SETUP toggle "HEY JARVIS WAKE WORD" overrides it per device
+  WAKE_WORD_ON_MOBILE: true,    // v12.4: on for phones too (turn off in SETUP to save battery)
   TTS_PITCH: 0.85,              // slightly lowered
   TTS_RATE: 0.95,
   TTS_VOICE_PREFERENCE: ["Microsoft Ryan", "Google UK English Male", "Microsoft George", "Microsoft Thomas", "Daniel", "English United Kingdom", "en-GB"],

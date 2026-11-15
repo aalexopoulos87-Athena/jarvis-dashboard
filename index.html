@@ -65,7 +65,7 @@
       <svg viewBox="0 0 24 24"><rect x="8.5" y="2" width="7" height="13" rx="3.5"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5M8.5 21.5h7"/></svg>
     </button>
     <div class="mic-t" id="mic-state">JARVIS ONLINE</div>
-    <div class="mic-s" id="mic-hint">SAY "JARVIS" TO ACTIVATE</div>
+    <div class="mic-s" id="mic-hint">SAY "HEY JARVIS" TO ACTIVATE</div>
     <canvas id="micwave" width="220" height="16"></canvas>
   </section>
   <div class="dotline" style="left:62px;top:922px"></div>
@@ -258,6 +258,7 @@
       <label class="su-l" id="su-topic-row">REPLIES CHANNEL<input id="su-topic" type="password" spellcheck="false" autocomplete="off" placeholder="Filled by your setup link"></label>
       <label class="su-l" id="su-city-row" hidden>WEATHER CITY<input id="su-city" type="text" spellcheck="false" autocomplete="off" placeholder="Empty = use this device's location"></label>
       <label class="su-toggle" id="su-awake-row"><input id="su-awake" type="checkbox" checked>KEEP SCREEN AWAKE</label>
+      <label class="su-toggle" id="su-wake-row"><input id="su-wake" type="checkbox" checked>"HEY JARVIS" WAKE WORD (LISTENS WHILE OPEN)</label>
       <div class="su-actions">
         <button type="button" id="su-cancel">CANCEL</button>
         <button type="submit" id="su-save">SAVE</button>
@@ -271,7 +272,7 @@
 </div>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
 <script src="assets/vendor/three.min.js"></script>
-<script src="assets/app-v12.js?v=12.3.1"></script>
+<script src="assets/app-v12.js?v=12.4"></script>
 <script src="assets/sphere.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */

@@ -1280,13 +1280,82 @@ function matchWake(text){ text=text||""; const n=normWake(text), lead=n.length-n
 function wakePref(){ try{ const v=localStorage.getItem(LS_WAKE); if(v==="1") return true; if(v==="0") return false; }catch(e){} return C.WAKE_WORD_ENABLED!==false; }
 C.WAKE_WORD_ENABLED=wakePref();
 let wakeQuietUntil=0, wakeFails=0;
+
+/* v12.7 holographic helm: visible while a conversation is listening (command/handoff).
+   Speaking bars use a Web Audio analyser on an already-granted mic stream only; never prompts.
+   Falls back to SpeechRecognition speech/result events if the analyser is unavailable. */
+let helmStream=null, helmAnalyser=null, helmRaf=0, helmPending=false, helmDenied=false, helmSpeech=false, helmSrc=null;
+function helmActive(){ return (listening&&mode==="command")||mode==="handoff"; }
+function helmEl(){ return $("#holo-helm"); }
+let helmLevel=0;
+function paintHelmet(){
+  const el=helmEl(); if(!el) return;
+  const on=helmActive();
+  el.classList.toggle("on",on);
+  el.setAttribute("aria-hidden", on?"false":"true");
+  if(!on){ helmSpeech=false; helmLevel=0; el.classList.remove("speaking"); el.style.setProperty("--hh-level","0"); return; }
+  el.style.setProperty("--hh-level", helmLevel.toFixed(3));
+  el.classList.toggle("speaking", helmSpeech || helmLevel>0.06);
+}
+function setHelmSpeech(on){
+  helmSpeech=!!on;
+  const el=helmEl(); if(!el) return;
+  if(on){ el.classList.add("speaking"); clearTimeout(setHelmSpeech.t); setHelmSpeech.t=setTimeout(()=>{ helmSpeech=false; paintHelmet(); },700); }
+  else { clearTimeout(setHelmSpeech.t); }
+  paintHelmet();
+}
+function stopHelmMeter(){
+  if(helmRaf){ cancelAnimationFrame(helmRaf); helmRaf=0; }
+  if(helmSrc){ try{ helmSrc.disconnect(); }catch(e){} helmSrc=null; }
+  helmAnalyser=null;
+  if(helmStream){ try{ helmStream.getTracks().forEach(t=>t.stop()); }catch(e){} helmStream=null; }
+  helmPending=false;
+  helmSpeech=false; helmLevel=0;
+  const el=helmEl(); if(el) el.style.setProperty("--hh-level","0");
+  paintHelmet();
+}
+async function startHelmMeter(){
+  if(!helmActive() || helmStream || helmPending || helmDenied) return;
+  let granted=false;
+  try{ const st=await navigator.permissions.query({name:"microphone"}); granted=!!(st&&st.state==="granted"); }catch(e){ granted=false; }
+  if(!granted || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  helmPending=true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    if(!helmActive()){ stream.getTracks().forEach(t=>t.stop()); helmPending=false; return; }
+    const ac=audioCtx();
+    if(!ac){ stream.getTracks().forEach(t=>t.stop()); helmPending=false; return; }
+    if(ac.state==="suspended") try{ await ac.resume(); }catch(e){}
+    const src=ac.createMediaStreamSource(stream);
+    const an=ac.createAnalyser(); an.fftSize=256; an.smoothingTimeConstant=0.72;
+    src.connect(an);
+    helmStream=stream; helmSrc=src; helmAnalyser=an; helmPending=false;
+    const data=new Uint8Array(an.fftSize);
+    const tick=()=>{
+      if(!helmAnalyser) return;
+      helmAnalyser.getByteTimeDomainData(data);
+      let sum=0; for(let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
+      helmLevel=Math.min(1, Math.sqrt(sum/data.length)*4);
+      paintHelmet();
+      helmRaf=requestAnimationFrame(tick);
+    };
+    helmRaf=requestAnimationFrame(tick);
+  }catch(e){ helmDenied=true; helmPending=false; }
+}
+function syncHelmet(){
+  paintHelmet();
+  // Analyser only while the command recogniser is already running; never during wake-word idle.
+  if(listening && mode==="command") startHelmMeter();
+  else if(!helmActive()) stopHelmMeter();
+}
+
 function micUI(){ $("#p-mic").classList.toggle("listening",listening&&(mode==="command"||mode==="handoff"));
   $("#mic-state").textContent = (mode==="command"||mode==="handoff")?"LISTENING…":"JARVIS ONLINE";
   const wakeOn=C.WAKE_WORD_ENABLED&&!micBlocked&&!!SR;
   const mh=$("#m-hint"); if(mh) mh.textContent = !SR?"TYPE BELOW - VOICE INPUT NEEDS CHROME": (mode==="command"||mode==="handoff")?"LISTENING… SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" OR TAP THE SPHERE`:"TAP THE MIC OR THE SPHERE TO TALK";
   $("#mic-hint").textContent = !SR?"VOICE INPUT NEEDS CHROME OR EDGE": (mode==="command"||mode==="handoff")?"SPEAK YOUR REQUEST": wakeOn?`SAY "${WAKE_LABEL}" TO ACTIVATE`:"CLICK THE MIC TO TALK";
   document.body.classList.toggle("wake-on",wakeOn&&wakeArmed);
-  setBusy(); }
+  setBusy(); syncHelmet(); }
 function scheduleWake(delay){ clearTimeout(scheduleWake.t);
   scheduleWake.t=setTimeout(()=>{ if(C.WAKE_WORD_ENABLED && wakeArmed && !document.hidden && mode!=="command" && mode!=="handoff") startRec("wake"); },delay); }
 // Wake phrase heard: short cue, sphere to LISTENING, then either send the words that followed it or listen for the request.
@@ -1314,8 +1383,11 @@ function startRec(m){ if(!SR){ toast("SPEECH RECOGNITION NEEDS CHROME OR EDGE");
   mode=m; try{ rec&&rec.abort(); }catch(e){}
   const r=new SR(); rec=r; r.lang="en-GB"; r.interimResults=true; r.continuous=(m==="wake"); let finalText="", heard=false;
   r.onstart=()=>{ if(rec!==r) return; listening=true; startRec.okAt=Date.now(); micUI(); };
+  r.onspeechstart=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(true); };
+  r.onspeechend=()=>{ if(rec!==r) return; if(m==="command"||m==="handoff") setHelmSpeech(false); };
   r.onresult=ev=>{ if(rec!==r) return; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const t=ev.results[i][0].transcript; if(ev.results[i].isFinal) finalText+=t+" "; else interim+=t; }
     micLevel=1; heard=true; wakeFails=0; clearTimeout(startRec.t); startRec.t=setTimeout(()=>micLevel=0,400);
+    if(m==="command"||m==="handoff") setHelmSpeech(true);
     if(m==="command") $("#vb-input").value=(finalText+interim).trim();
     if(m==="wake"){ if(speaking || Date.now()<wakeQuietUntil){ finalText=""; return; }   // never wake on JARVIS's own voice
       const last=ev.results[ev.results.length-1]; if(!last.isFinal) return;

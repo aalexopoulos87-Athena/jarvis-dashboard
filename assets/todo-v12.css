@@ -1,0 +1,75 @@
+/* v12.3 to-do pop-up — same pale yellow-gold holographic layer as the v12.2 Gmail panel.
+   Opens over the lower/central sphere when a "Waiting on you" (or Fleet today) item is tapped; the sphere stays visible and reactive. */
+#wait-list li,#fleet-list li{cursor:pointer; border-radius:6px; touch-action:manipulation; -webkit-tap-highlight-color:transparent}
+#wait-list li:hover,#wait-list li:focus-visible,#fleet-list li:hover,#fleet-list li:focus-visible{background:rgba(243,210,122,.07); outline:none}
+#wait-list li.tp-active,#fleet-list li.tp-active{background:rgba(243,210,122,.12); box-shadow:inset 2px 0 0 var(--gold,#f3d27a)}
+
+#todo-panel{
+  position:absolute; left:603px; top:440px; width:800px; height:360px; z-index:13;
+  pointer-events:none;
+  opacity:0; transform:translateY(64px) scale(.97); transform-origin:50% 100%;
+  transition:transform 400ms cubic-bezier(.16,1,.3,1), opacity 400ms ease-out;
+  will-change:transform,opacity;
+}
+#todo-panel.tp-open{opacity:1; transform:none}
+#todo-panel.tp-closing{transition:transform 380ms cubic-bezier(.4,0,.7,.2), opacity 380ms ease-in}
+#todo-panel.tp-open,#todo-panel.tp-closing{pointer-events:auto}
+#todo-panel[hidden]{display:none!important}
+#todo-panel .ep-frame{
+  position:relative; height:100%; overflow:hidden; display:flex; flex-direction:column;
+  border:1.5px solid rgba(243,210,122,.62); border-radius:14px;
+  background:
+    radial-gradient(120% 60% at 50% 0%,rgba(255,239,184,.10),transparent 60%),
+    linear-gradient(180deg,rgba(36,28,8,.24) 0%,rgba(14,14,12,.36) 30%,rgba(8,12,16,.56) 44%,rgba(5,9,15,.9) 56%,rgba(4,8,14,.95) 100%);
+  box-shadow:0 0 16px rgba(255,239,184,.22),0 0 40px rgba(243,210,122,.14),inset 0 0 28px rgba(243,210,122,.10),inset 0 1px 0 rgba(255,247,216,.25);
+  color:var(--gold-core,#fff7d8);
+  text-shadow:0 1px 3px rgba(0,0,0,.85);
+}
+#todo-panel .ep-frame::before{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:3;
+  background:repeating-linear-gradient(180deg,transparent 0 2px,rgba(255,247,216,.025) 2px 3px);
+}
+#todo-panel .ep-frame::after{
+  content:""; position:absolute; left:18px; right:18px; top:-1px; height:2px; border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--gold-hot,#ffefb8) 18%,rgba(243,210,122,.3) 60%,transparent);
+  box-shadow:0 0 10px rgba(255,239,184,.6);
+}
+#todo-panel .ep-head{flex:none}
+#tp-body{position:relative; z-index:4; flex:1; min-height:0; overflow:auto; padding:12px 18px 8px; scrollbar-width:thin}
+#tp-body .tp-chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px}
+#tp-body .tp-chip{font-size:11px; font-weight:700; letter-spacing:1.6px; padding:2px 8px; border-radius:6px;
+  color:var(--gold-hot,#ffefb8); border:1px solid rgba(243,210,122,.45); background:rgba(243,210,122,.08)}
+#tp-body .tp-chip.high{color:#fff7d8; border-color:#ffefb8; background:rgba(255,239,184,.18); box-shadow:0 0 8px rgba(255,239,184,.35)}
+#tp-body .tp-chip.ex{color:#c9a456; border-style:dashed}
+#tp-body .tp-title{font-size:17px; font-weight:700; line-height:1.3; color:var(--gold-core,#fff7d8); letter-spacing:.3px; margin-bottom:8px; white-space:pre-wrap; overflow-wrap:anywhere}
+#tp-body .tp-text{font-size:14px; line-height:1.45; color:var(--gold,#f3d27a); white-space:pre-wrap; overflow-wrap:anywhere; opacity:.95; margin-bottom:8px}
+#tp-body .tp-meta{display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:12px; letter-spacing:.6px; margin-top:6px}
+#tp-body .tp-meta dt{color:var(--gold-dim,#c9a456); font-weight:700; letter-spacing:1.6px}
+#tp-body .tp-meta dd{margin:0; color:var(--gold-mid,#e0bc6a); overflow-wrap:anywhere}
+#tp-body .tp-note{font-size:12px; color:var(--gold-dim,#c9a456); letter-spacing:.5px; margin-top:10px}
+#tp-status{position:relative; z-index:4; flex:none; min-height:18px; padding:0 18px; font-size:12px; letter-spacing:1.5px; color:var(--gold-mid,#e0bc6a)}
+.tp-actions{position:relative; z-index:4; flex:none; display:flex; gap:10px; padding:8px 14px 14px; border-top:1px solid rgba(243,210,122,.22)}
+.tp-actions button{
+  flex:1; height:38px; border-radius:10px; cursor:pointer; touch-action:manipulation;
+  font-family:Rajdhani; font-size:12px; font-weight:700; letter-spacing:2px; color:var(--gold-hot,#ffefb8);
+  border:1px solid rgba(243,210,122,.5); background:linear-gradient(180deg,rgba(40,30,10,.55),rgba(10,14,20,.7));
+  box-shadow:0 0 8px rgba(255,239,184,.25);
+}
+.tp-actions button#tp-ask{flex:1.6}
+.tp-actions button:hover,.tp-actions button:active{border-color:var(--gold-hot,#ffefb8); color:var(--gold-core,#fff7d8); background:rgba(243,210,122,.14)}
+.tp-actions button:disabled{opacity:.45; cursor:default; box-shadow:none}
+
+@media (max-width: 899px) and (orientation: portrait){
+  #todo-panel{
+    position:absolute; left:0; right:0; margin:0 auto;
+    top:calc(4px + min(88vw,44vh,440px) * .40);
+    width:min(94vw,520px); height:min(52vh,440px);
+    z-index:13;
+  }
+  #todo-panel .ep-kicker{display:none}
+  body.todo-open #pillbox, body.todo-open #m-hint, body.todo-open #awake-badge{display:none!important}
+  body.todo-open #inbox-btn{visibility:hidden}
+}
+@media (prefers-reduced-motion: reduce){
+  #todo-panel,#todo-panel.tp-closing{transform:none!important; transition:opacity 120ms linear}
+}

@@ -565,6 +565,7 @@ async function postEmailRequest(payload){
   }
 }
 function openInbox(){
+  if(typeof closeTodo==="function") closeTodo();
   setEmailLoading();
   armEmailWait();
   return postEmailRequest({type:"email_list",account:"default",limit:15});
@@ -876,13 +877,102 @@ async function setupLocationFromField(city){
 async function setupLocation(){ openSetup(); }
 weather(false); setInterval(()=>weather(false),15*60*1000);
 
+/* ---------- v12.3 to-do pop-up: tap a "Waiting on you" / "Fleet today" item ---------- */
+let todoData={wait:[],fleet:[],example:false,updated:""}, todoCur=null, todoHideTimer=null, todoAskLock=0;
+const TODO_SLIDE_MS=400;
+function todoField(i,keys){ for(const k of keys){ const v=i&&i[k]; if(v!=null && String(v).trim()) return String(v).trim(); } return ""; }
+function todoWhen(s){ if(!s) return ""; const d=new Date(s); return isFinite(d.getTime())?fmtWhen(s):String(s); }
+function todoSafeUrl(u){ if(!String(u||"").trim()) return ""; try{ const x=new URL(String(u||""),location.href); return /^https?:$/.test(x.protocol)?x.href:""; }catch(e){ return ""; } }
+function renderTodo(kind,item){
+  const ex=!!todoData.example, fleet=kind==="fleet";
+  const title=fleet?todoField(item,["bot"]):todoField(item,["title"]);
+  const text=fleet?todoField(item,["summary","detail","details","text","body","note"]):todoField(item,["detail","details","text","body","summary","note","description"]);
+  const pri=fleet?"":todoField(item,["priority"]), tag=todoField(item,["tag"]), status=fleet?todoField(item,["status"]):"";
+  const source=todoField(item,["source","from","bot","owner"]), when=todoWhen(todoField(item,["date","due","when","ts","created","updated"]));
+  const url=todoSafeUrl(todoField(item,["url","link"]));
+  const chips=[pri?`<span class="tp-chip ${escEmail(pri.toLowerCase())}">${escEmail(pri.toUpperCase())} PRIORITY</span>`:"",
+               tag?`<span class="tp-chip">${escEmail(tag.toUpperCase())}</span>`:"",
+               status?`<span class="tp-chip">${escEmail(status.toUpperCase())}</span>`:"",
+               ex?`<span class="tp-chip ex">EXAMPLE DATA</span>`:""].join("");
+  const meta=[[fleet?"":"SOURCE",fleet?"":source],["DATE",when],["BOARD UPDATED",todoData.updated?todoWhen(todoData.updated):""]]
+    .filter(r=>r[0]&&r[1]).map(r=>`<dt>${r[0]}</dt><dd>${escEmail(r[1])}</dd>`).join("");
+  $("#tp-kicker").textContent=fleet?"FLEET REPORT":"ACTION ITEM";
+  $("#tp-title").textContent=fleet?"FLEET TODAY":"WAITING ON YOU";
+  $("#tp-body").innerHTML=(chips?`<div class="tp-chips">${chips}</div>`:"")
+    +`<div class="tp-title">${escEmail(title||"(untitled)")}</div>`
+    +(text?`<div class="tp-text">${escEmail(text)}</div>`:"")
+    +(meta?`<dl class="tp-meta">${meta}</dl>`:"")
+    +(url?`<div class="tp-note"><a href="${escEmail(url)}" target="_blank" rel="noopener" style="color:inherit">OPEN SOURCE LINK</a></div>`:"")
+    +(ex?`<div class="tp-note">This is placeholder data on the board, so there is nothing real to ask JARVIS about yet.</div>`:"");
+  const ask=$("#tp-ask"); if(ask){ ask.disabled=ex||!title; ask.textContent="ASK JARVIS ABOUT THIS"; }
+  const st=$("#tp-status"); if(st) st.textContent="";
+}
+function todoAskText(kind,item){
+  if(kind==="fleet"){
+    const bot=todoField(item,["bot"]), sum=todoField(item,["summary","detail","text"]);
+    return `Give me the latest from ${bot||"that bot"} on this: ${sum}`.trim();
+  }
+  const title=todoField(item,["title"]), text=todoField(item,["detail","details","text","body","summary","note","description"]), tag=todoField(item,["tag"]);
+  return (`Tell me about this item waiting on me${tag?` (${tag})`:""}: ${title}`+(text&&text!==title?`. ${text}`:"")).trim();
+}
+function todoReducedMotion(){ try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } }
+function openTodo(kind,idx){
+  const list=kind==="fleet"?todoData.fleet:todoData.wait, item=list[idx]; if(!item) return false;
+  const p=$("#todo-panel"); if(!p) return false;
+  if(typeof closeInbox==="function"){ const ep=$("#email-panel"); if(ep&&!ep.hidden) closeInbox(); }
+  todoCur={kind,idx,item};
+  document.querySelectorAll("#wait-list li.tp-active,#fleet-list li.tp-active").forEach(li=>li.classList.remove("tp-active"));
+  const li=document.querySelector(`#${kind==="fleet"?"fleet":"wait"}-list li[data-i="${idx}"]`); if(li) li.classList.add("tp-active");
+  renderTodo(kind,item);
+  clearTimeout(todoHideTimer); todoHideTimer=null;
+  p.classList.remove("tp-closing"); document.body.classList.add("todo-open");
+  const st=$("#stage"); if(st&&st.scrollTop>0){ try{ st.scrollTo({top:0,behavior:todoReducedMotion()?"auto":"smooth"}); }catch(e){ st.scrollTop=0; } }   // keep the sphere in view
+  if(p.hidden){ p.hidden=false; void p.offsetWidth; }
+  p.classList.add("tp-open");
+  setTimeout(()=>{ const c=$("#tp-close"); if(c&&!p.hidden) try{ c.focus({preventScroll:true}); }catch(e){} }, 60);
+  vlog({ev:"todo-open",kind,idx});
+  return true;
+}
+function closeTodo(){
+  const p=$("#todo-panel"); if(!p) return;
+  document.querySelectorAll("#wait-list li.tp-active,#fleet-list li.tp-active").forEach(li=>li.classList.remove("tp-active"));
+  if(p.hidden){ document.body.classList.remove("todo-open"); return; }
+  p.classList.remove("tp-open"); p.classList.add("tp-closing");
+  const done=()=>{ clearTimeout(todoHideTimer); todoHideTimer=null;
+    if(!p.classList.contains("tp-closing")) return;
+    p.hidden=true; p.classList.remove("tp-closing"); document.body.classList.remove("todo-open"); todoCur=null; };
+  if(!p._tpEnd){ p._tpEnd=e=>{ if(e.target===p && e.propertyName==="transform" && p._tpDone) p._tpDone(); }; p.addEventListener("transitionend",p._tpEnd); }
+  p._tpDone=done; clearTimeout(todoHideTimer);
+  todoHideTimer=setTimeout(done, todoReducedMotion()?140:TODO_SLIDE_MS+250);
+}
+async function askTodo(){
+  if(!todoCur || todoData.example) return;
+  if(Date.now()-todoAskLock<4000) return; todoAskLock=Date.now();
+  const ask=$("#tp-ask"), st=$("#tp-status"); if(ask) ask.disabled=true;
+  if(st) st.textContent="TRANSMITTING…";
+  const text=todoAskText(todoCur.kind,todoCur.item);
+  await sendRequest(text);                       // same path as a typed/spoken request: ack + spoken reply
+  if(st) st.textContent=requestsTopic()?"SENT — JARVIS WILL ANSWER ALOUD":"NOT SENT — OPEN SETUP";
+  setTimeout(()=>{ if(ask&&todoCur&&!todoData.example){ ask.disabled=false; } }, 4000);
+}
+function bindTodo(){
+  ["#wait-list","#fleet-list"].forEach(sel=>{ const ul=$(sel); if(!ul) return;
+    ul.addEventListener("click",e=>{ const li=e.target.closest("li[data-i]"); if(li){ e.preventDefault(); openTodo(li.getAttribute("data-k"),+li.getAttribute("data-i")); } });
+    ul.addEventListener("keydown",e=>{ if(e.key!=="Enter"&&e.key!==" ") return; const li=e.target.closest("li[data-i]"); if(li){ e.preventDefault(); openTodo(li.getAttribute("data-k"),+li.getAttribute("data-i")); } });
+  });
+  ["#tp-close","#tp-close2"].forEach(sel=>{ const b=$(sel); if(b) b.addEventListener("click",e=>{ e.preventDefault(); closeTodo(); }); });
+  const ask=$("#tp-ask"); if(ask) ask.addEventListener("click",e=>{ e.preventDefault(); askTodo(); });
+  addEventListener("keydown",e=>{ if(e.key==="Escape"){ const p=$("#todo-panel"); if(p&&!p.hidden) closeTodo(); } });
+}
+
 /* ---------- panels from data.json (served) / data.js (file://) ---------- */
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function renderData(d){ if(!d) return; const ex=/example/i.test(d._note||"")||d.updated==="EXAMPLE"; const w=d.waiting_on_you||[], f=d.fleet_today||[];
   const tag=ex?'<span class="example">EXAMPLE DATA</span>':"";
   $("#wait-n").innerHTML=w.length+tag; $("#fleet-n").innerHTML=f.length+tag;
-  $("#wait-list").innerHTML=w.slice(0,5).map(i=>`<li class="${esc(i.priority)}"><span class="ck"></span><span class="tx">${esc(i.title)}</span>${i.tag?`<span class="tg">${esc(i.tag)}</span>`:""}</li>`).join("");
-  $("#fleet-list").innerHTML=f.slice(0,4).map(i=>`<li><span class="st ${esc(i.status)}"></span><span class="bn">${esc(i.bot)}</span><span class="tx">${esc(i.summary)}</span></li>`).join(""); }
+  todoData={wait:w.slice(0,5), fleet:f.slice(0,4), example:ex, updated:ex?"":String(d.updated||"")};   // v12.3: kept for the to-do pop-up
+  $("#wait-list").innerHTML=todoData.wait.map((i,n)=>`<li class="${esc(i.priority)}" data-k="wait" data-i="${n}" tabindex="0" role="button" aria-haspopup="dialog"><span class="ck"></span><span class="tx">${esc(i.title)}</span>${i.tag?`<span class="tg">${esc(i.tag)}</span>`:""}</li>`).join("");
+  $("#fleet-list").innerHTML=todoData.fleet.map((i,n)=>`<li data-k="fleet" data-i="${n}" tabindex="0" role="button" aria-haspopup="dialog"><span class="st ${esc(i.status)}"></span><span class="bn">${esc(i.bot)}</span><span class="tx">${esc(i.summary)}</span></li>`).join(""); }
 async function loadData(){ if(location.protocol!=="file:"){ try{ const r=await fetch(C.DATA_URL+"?t="+Date.now(),{cache:"no-store"}); if(r.ok){ renderData(await r.json()); return; } }catch(e){} }
   renderData(window.JARVIS_DATA); }
 loadData(); setInterval(loadData,C.DATA_REFRESH_SECONDS*1000);
@@ -1125,6 +1215,7 @@ function bindSetup(){
     const li=e.target.closest("li[data-id]"); if(li) openEmail(li.getAttribute("data-id"));
   });
 
+  bindTodo();
   const ds=$("#dock-settings"); if(ds) ds.addEventListener("click",e=>{e.preventDefault(); openSetup();});
   const gear=$("#m-gear"); if(gear) gear.addEventListener("click",e=>{e.preventDefault(); openSetup();});
   const cancel=$("#su-cancel"); if(cancel) cancel.addEventListener("click",e=>{e.preventDefault(); closeSetup();});
@@ -1191,7 +1282,7 @@ $("#boot").addEventListener("click",boot);
   wrap.addEventListener("scroll",upd,{passive:true}); upd();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
-window.JARVIS={say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={openTodo,closeTodo,get todoData(){return todoData;},say,cue,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

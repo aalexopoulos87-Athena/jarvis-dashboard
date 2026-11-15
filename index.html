@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="assets/app-v11.css">
 <link rel="stylesheet" href="assets/phone-v11.css">
 <link rel="stylesheet" href="assets/email-v12.css?v=12.2.1">
+<link rel="stylesheet" href="assets/todo-v12.css?v=12.3">
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -153,6 +154,21 @@
       <article id="ep-detail" hidden></article>
     </div>
   </div>
+  <div id="todo-panel" hidden role="dialog" aria-modal="false" aria-labelledby="tp-title">
+    <div class="ep-frame">
+      <header class="ep-head">
+        <div class="ep-kicker" id="tp-kicker">ACTION ITEM</div>
+        <div class="ep-title" id="tp-title">WAITING ON YOU</div>
+        <button type="button" id="tp-close">CLOSE</button>
+      </header>
+      <article id="tp-body"></article>
+      <div id="tp-status" aria-live="polite"></div>
+      <footer class="tp-actions">
+        <button type="button" id="tp-ask">ASK JARVIS ABOUT THIS</button>
+        <button type="button" id="tp-close2">CLOSE</button>
+      </footer>
+    </div>
+  </div>
   </div>
 
   <div id="g-left" class="fgauge sm">
@@ -255,7 +271,7 @@
 </div>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
 <script src="assets/vendor/three.min.js"></script>
-<script src="assets/app-v12.js?v=12.2.1"></script>
+<script src="assets/app-v12.js?v=12.3"></script>
 <script src="assets/sphere.js"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */

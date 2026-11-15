@@ -780,6 +780,8 @@ async function onReply(text,id,knownUrl){
   holdStatus("NEW REPLY",false,8000);
   realReplyGen=requestGen;
   if(pendingAck && !pendingAck.started){ pendingAck.cancelled=true; vlog({ev:"drop-ack",reason:"real-reply"}); pendingAck=null; }
+  ackReq.replied=true;
+  if(openerPlayed.has(text)){ openerPlayed.delete(text); return enqueueVoice(token=>playAfterOpener(text, token)); }
   const arrived=Date.now();
   const primed=knownUrl||takeRecentAudio(text);
   const urlP=primed?Promise.resolve(primed):waitForAudio(text, AUDIO_WAIT_MS);
@@ -1125,7 +1127,7 @@ function ingestNtfy(msg){
   if(msg.isAudio){ offerAudio(msg); return null; }
   return msg;
 }
-function stopReplies(){ if(sse){ try{ sse.close(); }catch(e){} sse=null; } sseOpen=false; }
+function stopReplies(){ if(sse){ try{ sse.close(); }catch(e){} sse=null; } sseOpen=false; try{ stopAckStream(); }catch(e){} }
 function startReplies(){
   stopReplies();
   const topic=repliesTopic();
@@ -1141,6 +1143,7 @@ function startReplies(){
       if(plain) onReply(plain.text,plain.id,plain.url);
     };
   }catch(e){ sseOpen=false; }
+  try{ startAckStream(); }catch(e){}
   updateLink();
 }
 
@@ -1255,12 +1258,137 @@ function onPageVisible(){
 document.addEventListener("visibilitychange", onPageVisible);
 updateAwakeUI(false);
 
+
+/* ---------- v12.8 instant acknowledgments + fast-reply openers ----------
+   Clips are rendered by the relay in the same local film voice as replies, sent once as a JSON bundle (ntfy attachment on
+   the "<replies>-acks" side topic) and kept in this device's Cache API. Nothing is in the repo.
+   - Requests that obviously need his accounts/tools get a matching ack the moment they are sent (no network).
+   - Anything else: the relay's fast brain either answers in ~1-2 s (no ack, maybe a cached opener signal) or tells us it
+     escalated (jarvis_ack) and we play an ack then. Never the same clip twice in a row. */
+const ACKBANK_V=1, ACKBANK_CACHE="jarvis-ackbank", ACKBANK_KEY="/jarvis-ackbank-v"+ACKBANK_V+".json";
+let ackBank=null, ackBankBusy=false, ackSse=null, lastAckText="";
+let ackReq={ts:0,sentAt:0,acked:false,replied:false};
+const openerPlayed=new Set();
+const TASK_RE=/\b(e-?mails?|inbox|mail|gmail|calendar|meetings?|schedule|appointments?|remind(er|ers)?|to-?dos?|tasks?|drive|files?|documents?|docs?|spreadsheet|messages?|texts?|sms|whatsapp|slack|telegram|call|phone|ring|orders?|buy|purchase|book(ing)?|reserv\w*|flights?|hotel|uber|news|headlines|stocks?|prices?|invoice|pay(ment)?|bank|balance|crystal|carta|godpack|learn2spiel|matthew|send|draft|reply|respond|forward|note|notes|lists?|open|play|music|spotify|lights?|turn (on|off)|github|repo|deploy|website|site|update|change|cancel|delete|save|add|create|set|alarm|timer|summar\w*|brief(ing)?|contacts?|address|package|delivery|track|weekend plans|agenda|my|remind me|text me|call me|send me|email me|i have|do i|did i|am i|shall we|let'?s)\b/i;
+const CHAT_SAFE_RE=/^(how are you|tell me (a|another) joke|what'?s up|hello|hi|hey|good (morning|afternoon|evening|night))/i;
+const WEATHER_WORD_RE=/\b(weather|temperature|rain|raining|sunny|forecast|cold|hot|warm|wind|windy|snow|umbrella|jacket|degrees|humid)\b/i;
+function stripWake(t){ return String(t||"").replace(/^\s*((hey|ok|okay|a)\s+)?jarvis[,.!\s]*/i,"").trim(); }
+function looksLikeTask(text){
+  const t=stripWake(text);
+  if(t.split(/\s+/).length>28) return true;
+  const hard=/\b(e-?mail|calendar|remind|message|text|send|order)\b/i.test(t);
+  if((CHAT_SAFE_RE.test(t)||WEATHER_WORD_RE.test(t)) && !hard) return false;
+  return TASK_RE.test(t);
+}
+function ackKind(text){
+  const t=stripWake(text);
+  if(/\b(check|look up|lookup|find|search|any new|what'?s on|do i have|read|show|pull up|status|how many)\b/i.test(t)) return "lookup";
+  if(/^\s*(what|when|where|who|why|how|which|is|are|do|does|did|can|could|will|would|should|any|tell me)\b/i.test(t)||/\?\s*$/.test(t)) return "question";
+  return "command";
+}
+function ackTopic(){ const t=repliesTopic(); return t?t+"-acks":""; }
+function b64Url(b64){ const bin=atob(b64), u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return URL.createObjectURL(new Blob([u8],{type:"audio/mpeg"})); }
+function installAckBank(d){
+  if(!d||d.v!==ACKBANK_V||!d.clips) return false;
+  const bank={}; let n=0;
+  for(const k of Object.keys(d.clips)){ bank[k]=(d.clips[k]||[]).filter(c=>c&&c.text&&c.mp3).map(c=>({text:c.text,url:b64Url(c.mp3)})); n+=bank[k].length; }
+  if(n<3) return false;
+  ackBank=bank; vlog({ev:"ackbank",n}); return true;
+}
+async function fetchAckBank(url){
+  const r=await fetch(url); if(!r.ok) return false;
+  const txt=await r.text(); let d=null; try{ d=JSON.parse(txt); }catch(e){ return false; }
+  if(!installAckBank(d)) return false;
+  try{ const c=await caches.open(ACKBANK_CACHE); await c.put(ACKBANK_KEY,new Response(txt,{headers:{"Content-Type":"application/json"}})); }catch(e){}
+  return true;
+}
+async function pollAckBank(){
+  const topic=ackTopic(); if(!topic) return false;
+  const r=await fetch("https://ntfy.sh/"+encodeURIComponent(topic)+"/json?poll=1&since=3h"); if(!r.ok) return false;
+  const msgs=(await r.text()).split("\n").map(l=>{ try{ return JSON.parse(l); }catch(e){ return null; } }).filter(Boolean);
+  for(let i=msgs.length-1;i>=0;i--){
+    const m=msgs[i], a=m.attachment;
+    if(m.title==="jarvis-ack-bank" && a && a.url && (!a.expires || a.expires*1000>Date.now()+5000) && /-v(\d+)\.json$/.test(a.name||"") && +RegExp.$1===ACKBANK_V)
+      return await fetchAckBank(a.url);
+  }
+  return false;
+}
+async function ensureAckBank(){
+  if(ackBank||ackBankBusy||!ackTopic()) return;
+  ackBankBusy=true;
+  try{
+    try{ const c=await caches.open(ACKBANK_CACHE); const r=await c.match(ACKBANK_KEY); if(r && installAckBank(await r.json())) return; }catch(e){}
+    if(await pollAckBank()) return;
+    const req=requestsTopic(); if(!req) return;
+    let last=0; try{ last=+localStorage.getItem("jarvis_ackbank_ask")||0; }catch(e){}
+    if(Date.now()-last<120000) return;
+    try{ localStorage.setItem("jarvis_ackbank_ask",String(Date.now())); }catch(e){}
+    await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body:JSON.stringify({type:"ack_bank",v:ACKBANK_V,source:SOURCE,ts:Date.now()})});
+    for(let i=0;i<12&&!ackBank;i++){ await new Promise(r=>setTimeout(r,2500)); if(await pollAckBank()) return; }
+  }catch(e){ vlog({ev:"ackbank-error",err:String(e&&e.message||e)}); }
+  finally{ ackBankBusy=false; }
+}
+function pickAck(kind){
+  const bank=ackBank&&ackBank[kind]; if(!bank||!bank.length) return null;
+  const pool=bank.length>1?bank.filter(c=>c.text!==lastAckText):bank;
+  const c=pool[Math.floor(Math.random()*pool.length)]; lastAckText=c.text; return c;
+}
+function newAckRequest(ts){ ackReq={ts,sentAt:Date.now(),acked:false,replied:false}; }
+function playAck(kind, why){
+  if(!ackBank||ackReq.acked||ackReq.replied||!canSpeak()) return false;
+  if(speaking){ vlog({ev:"ack-skip",reason:"speaking",kind,why}); return false; }   // JARVIS is already talking
+  const c=pickAck(kind); if(!c) return false;
+  ackReq.acked=true; const gen=requestGen, req=ackReq;
+  vlog({ev:"ack",kind,why,text:c.text,ms:Date.now()-req.sentAt});
+  if(voiceJobDepth>0){ playExclusiveUrl(c.url, voiceSeq); return true; }   // an older reply is still waiting for its audio: don't queue behind it
+  enqueueVoice(async token=>{ if(gen!==requestGen||req.replied) return; await playExclusiveUrl(c.url, token); });
+  return true;
+}
+function playOpener(text, full){
+  const c=ackBank&&(ackBank.opener||[]).find(o=>o.text===text); if(!c||ackReq.acked||ackReq.replied||!canSpeak()) return false;
+  if(speaking||voiceJobDepth>0){ vlog({ev:"opener-skip",reason:"busy",text}); return false; }   // part 1 then plays from the reply as usual
+  ackReq.acked=true; openerPlayed.add(full); const gen=requestGen;
+  vlog({ev:"opener",text,ms:Date.now()-ackReq.sentAt});
+  enqueueVoice(async token=>{ if(gen!==requestGen) return; await playExclusiveUrl(c.url, token); });
+  return true;
+}
+function onAckSignal(data){
+  let m=null; try{ m=JSON.parse(data.message||""); }catch(e){}
+  if(data.title==="jarvis-ack-bank" && data.attachment && data.attachment.url){ if(!ackBank) fetchAckBank(data.attachment.url).catch(()=>{}); return; }
+  if(!m||m.ts==null||+m.ts!==+ackReq.ts) return;
+  if(m.jarvis_open && m.text) playOpener(String(m.jarvis_open), String(m.text));
+  else if(m.jarvis_ack) playAck(["question","command","lookup"].includes(m.jarvis_ack)?m.jarvis_ack:"question","relay");
+}
+function stopAckStream(){ if(ackSse){ try{ ackSse.close(); }catch(e){} ackSse=null; } }
+function startAckStream(){
+  stopAckStream();
+  const topic=ackTopic(); if(!topic||typeof EventSource==="undefined") return;
+  try{
+    ackSse=new EventSource("https://ntfy.sh/"+encodeURIComponent(topic)+"/sse");
+    ackSse.onmessage=ev=>{ try{ const d=JSON.parse(ev.data); if(d&&d.event==="message") onAckSignal(d); }catch(e){} };
+  }catch(e){ ackSse=null; }
+  ensureAckBank();
+}
+/* After a cached opener played, the reply's part 1 (same opener) is skipped and parts 2..n follow. */
+async function playAfterOpener(text, token){
+  const r=partRec(text,true); r.started=true;
+  for(let k=2;;k++){
+    if(r.n && k>r.n) return true;
+    const u=await waitPart(r,k,PART_WAIT_MS);
+    if(!u){ if(k===2) vlog({ev:"part-missing",k,n:r.n,text}); return true; }
+    if(token!==voiceSeq||!canSpeak()) return true;
+    await playExclusiveUrl(u, token);
+  }
+}
+
 async function sendRequest(text){
   text=(text||"").trim(); if(!text) return;
   if(looksLikeInboxCommand(text)){
     const inp=$("#vb-input"); if(inp) inp.value="";
     log("YOU: "+text);
-    return openInbox();
+    const hadList=!!emailCache.list;   // v12.8: spoken/typed "check my email" gets an instant ack only when no saved list shows at once
+    const p=openInbox(); newAckRequest(-1); if(!hadList) playAck("lookup","inbox");
+    return p;
   }
   const inp=$("#vb-input"); if(inp) inp.value="";
   log("YOU: "+text);
@@ -1270,7 +1398,10 @@ async function sendRequest(text){
   const prog=$("#vb-prog"); if(prog) prog.style.width="100%";
   noteSentRequest();
   // v12.6.1: no chime before replies (owner request)
-  const body=JSON.stringify({text,source:SOURCE,ts:Date.now()});
+  const sentTs=Date.now();
+  newAckRequest(sentTs);
+  if(looksLikeTask(text)) playAck(ackKind(text),"local");   // v12.8: instant, from the on-device bank
+  const body=JSON.stringify({text,source:SOURCE,ts:sentTs});
   try{
     // Plain text body, no custom headers: a CORS "simple" request that ntfy.sh accepts from any page.
     const r=await fetch("https://ntfy.sh/"+encodeURIComponent(req),{method:"POST",body});
@@ -1556,7 +1687,7 @@ async function launchListen(){ clearListenParam();
   dots.addEventListener("click",e=>{ const i=e.target.dataset&&e.target.dataset.i; if(i!=null) cards[+i].scrollIntoView({behavior:"smooth",inline:"start",block:"nearest"}); }); })();
 if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
-window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

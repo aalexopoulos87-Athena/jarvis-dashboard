@@ -1,5 +1,5 @@
 /* JARVIS service worker: app shell + fonts + voice clips cached for offline start. */
-const VERSION = "jarvis-v12.7.2";
+const VERSION = "jarvis-v12.8";
 const SHELL = [
   "./", "index.html", "config.js", "data.js", "data.json", "manifest.webmanifest",
   "assets/app-v11.css", "assets/app-v11.1.js", "assets/app-v12.js", "assets/phone-v11.css", "assets/email-v12.css", "assets/todo-v12.css", "assets/launch-v12.css", "assets/helmet-v12.css",
@@ -22,7 +22,7 @@ self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k))))
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION && !k.startsWith("jarvis-ackbank")).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {

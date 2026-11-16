@@ -79,6 +79,7 @@ let chatHideT=0;
 function openChat(){
   const p=document.getElementById("chat-panel"); if(!p) return false;
   try{ closeTodo(); }catch(e){} try{ const ep=document.getElementById("email-panel"); if(ep&&!ep.hidden) closeInbox(); }catch(e){}
+  try{ window.JW&&JW.close(); }catch(e){}
   clearTimeout(chatHideT); p.classList.remove("ch-closing"); document.body.classList.add("chat-open");
   if(p.hidden){ p.hidden=false; void p.offsetWidth; }
   chatRender("open"); p.classList.add("ch-open");
@@ -739,6 +740,7 @@ async function postEmailRequest(payload,opt){
 }
 function openInbox(force){
   if(typeof closeTodo==="function") closeTodo();
+  try{ window.JW&&JW.close(); }catch(e){}
   try{ closeChat(); }catch(e){}
   force=force===true;
   if(emailCache.list){
@@ -818,6 +820,7 @@ function handleEmailList(data){
   showEmailPanel(); renderEmailList(emailCache.list||data); inboxStatus(refreshing);
 }
 function handleEmailPayload(data){
+  if(data && data.type && !/^email_/.test(String(data.type)) && !Array.isArray(data.emails) && !data.email){ vlog({ev:"email-json-ignored",type:data.type}); return; }   // v12.11: other data types never pop the inbox
   if(data && data.type==="email_list" && !data.email) return handleEmailList(data);
   emailGen++;
   clearTimeout(emailTimer); emailTimer=null;
@@ -888,6 +891,7 @@ async function onReply(text,id,knownUrl){
   lastReply={text,id,ts:Date.now()};
   if(isEmailJson(text)){
     const data=parseEmailJson(text);
+    if(data && window.JW && JW.handles(data)){ vlog({ev:"workspace-json",type:data.type}); try{ JW.onData(data); }catch(e){} return; }   // v12.11 calendar/drafts/tasks
     vlog({ev:"email-json",type:data&&data.type,ok:data&&data.ok});
     log(data&&data.type==="email_list" ? ("Inbox: "+((data.emails||[]).length)+" messages") :
         data&&data.type==="email_open" ? "Opened message" : "Inbox update");
@@ -1971,7 +1975,7 @@ if(qs.has("noboot")) log("System online");
 if(WANT_LISTEN && !window.__WANT_SETUP) setTimeout(launchListen,0);
 (function(){ const v=$("#brand .ver"); const B=window.JARVIS_BUILD||""; if(v&&B) v.textContent="v"+B;
   const am=/JarvisAndroid\/([\d.]+)/.exec(navigator.userAgent); log("Build v"+(B||"?")+(am?" · Android app "+am[1]:"")); })();
-window.JARVIS={get build(){return window.JARVIS_BUILD||"";},get history(){return chatHist.slice();},histAdd,openChat,closeChat,linkify,get convo(){return convo;},get convoMuted(){return convoMuted;},setMute:on=>setConvoMute(on),get convoPending(){return convoPending;},startConversation:h=>{ if(!convo){ convoStart(h||"api"); startRec.retried=false; startRec("command"); } },endConversation:w=>convoEnd(w||"api"),get nativeListening(){return nativeLis;},get helmLevel(){return helmLevel;},launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,switchInbox,stepInbox,get inboxAccount(){return inboxAcct;},accounts:INBOX_ACCOUNTS,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
+window.JARVIS={get build(){return window.JARVIS_BUILD||"";},requestsTopic,get source(){return SOURCE;},get history(){return chatHist.slice();},histAdd,openChat,closeChat,linkify,get convo(){return convo;},get convoMuted(){return convoMuted;},setMute:on=>setConvoMute(on),get convoPending(){return convoPending;},startConversation:h=>{ if(!convo){ convoStart(h||"api"); startRec.retried=false; startRec("command"); } },endConversation:w=>convoEnd(w||"api"),get nativeListening(){return nativeLis;},get helmLevel(){return helmLevel;},launchListen:()=>launchListen(),get launchInfo(){return window.__jarvisLaunch||null;},get wantListen(){return WANT_LISTEN;},matchWake:t=>matchWake(t),setWakeWord:(on)=>setWakeWord(on,true),get wakeOn(){return !!C.WAKE_WORD_ENABLED;},get wakeArmed(){return wakeArmed;},get recMode(){return mode;},ingestNtfy:m=>ingestNtfy(m),ntfyPayload,audioParts,openTodo,closeTodo,get todoData(){return todoData;},say,cue,thinkingChime,playUrl,speakLine,onReply,offerAudio,isVoiceLeader,claimVoice,invalidateVoice,pickVariant,dayPart,lines:LINES,noteSentRequest,isAckText,looksLikeTask,ackKind,ensureAckBank,playAck,get ackBank(){return ackBank;},get ackReq(){return ackReq;},get instId(){return instId;},get audioWaitMs(){return AUDIO_WAIT_MS;},get emailWaitMs(){return EMAIL_WAIT_MS;},get inboxSaved(){return inboxSaved;},get emailPending(){return emailPending;},get emailView(){return emailView;},requestInboxList,prefetchInbox,switchInbox,stepInbox,get inboxAccount(){return inboxAcct;},accounts:INBOX_ACCOUNTS,set emailWaitMs(v){EMAIL_WAIT_MS=Math.max(200,Number(v)||EMAIL_WAIT_MS);},isEmailJson,parseEmailJson,handleEmailPayload,openInbox,openEmail,closeInbox,sendRequest,renderData,log,updateLink,startReplies,openSetup,stopReplies,catchUpReplies,acquireWakeLock,releaseWakeLock,applyKeepAwake,get sseOpen(){return sseOpen;},get lastReply(){return lastReply;},get lastSeenId(){return lastSeenId;},get wakeHeld(){return !!(wakeLock||wakeFallback);},get wakeMode(){return wakeLock?"wakelock":(wakeFallback?"fallback":"off");},get keepAwake(){return keepAwakeOn();}};
 })();
 
 /* open SETUP automatically when the link has #setup */

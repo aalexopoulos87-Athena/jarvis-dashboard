@@ -23,7 +23,8 @@
 <link rel="stylesheet" href="assets/chat-v12.css?v=12.10.1">
 <link rel="stylesheet" href="assets/launch-v12.css?v=12.5">
 <link rel="stylesheet" href="assets/helmet-v12.css?v=12.10.1">
-<script src="assets/build.js?v=12.10.1"></script>
+<link rel="stylesheet" href="assets/workspace-v12.css?v=12.11.0">
+<script src="assets/build.js?v=12.11.0"></script>
 <script src="config.js"></script>
 <script src="data.js"></script>
 </head>
@@ -34,7 +35,7 @@
 
   <!-- ===== TOP BAR ===== -->
   <header id="m-top">
-  <div id="brand"><span class="logo">JARVIS</span><span class="ver" title="Build">v12.10.1</span></div>
+  <div id="brand"><span class="logo">JARVIS</span><span class="ver" title="Build">v12.11.0</span></div>
   <nav id="nav">
     <button class="nav-b active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" class="f"/></svg><span>HOME</span></button>
     <button class="nav-b"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg><span>MEDIA</span></button>
@@ -49,6 +50,7 @@
   <button type="button" id="m-gear" title="Setup" aria-label="Setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></button>
   </div>
   </header>
+  <nav id="cal-strip" aria-label="Calendar, today and the next days" title=""><ol></ol></nav>
   <button id="power" title="Exit full screen"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
 
   <!-- ===== LEFT ===== -->
@@ -148,6 +150,24 @@
     <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>
     <span>CHAT</span><i id="chat-new" hidden></i>
   </button>
+  </div>
+  <div id="ws-btns">
+  <button type="button" id="brief-btn" title="Morning brief (spoken)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>BRIEF</span></button>
+  <button type="button" id="drafts-btn" title="Drafts waiting for approval"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg><span>DRAFTS</span><i id="ws-drafts-n" hidden></i></button>
+  <button type="button" id="tasks-btn" title="Task list"><svg viewBox="0 0 24 24"><path d="M4 6l2 2 3-3M4 13l2 2 3-3"/><path d="M12 7h8M12 14h8M12 20h8"/></svg><span>TASKS</span><i id="ws-tasks-n" hidden></i></button>
+  </div>
+  <div id="ws-panel" hidden role="dialog" aria-modal="false" aria-labelledby="ws-title">
+    <div class="ep-frame">
+      <header class="ep-head">
+        <div class="ep-kicker" id="ws-kicker">WORKSPACE</div>
+        <div class="ep-title" id="ws-title">DRAFTS</div>
+        <button type="button" id="ws-back" hidden>BACK</button>
+        <button type="button" id="ws-refresh">REFRESH</button>
+        <button type="button" id="ws-close">CLOSE</button>
+      </header>
+      <div id="ws-status" aria-live="polite"></div>
+      <div id="ws-body"></div>
+    </div>
   </div>
   <div id="email-panel" hidden>
     <div class="ep-frame">
@@ -722,7 +742,8 @@
 <button type="button" id="tap-talk" hidden aria-label="Tap to talk to JARVIS"><span class="tt-ring"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg></span><span class="tt-t">TAP TO TALK</span><span class="tt-s" id="tt-sub">ONE TAP TO START LISTENING</span></button>
 <script>window.__WANT_SETUP=/(^#|&)setup\b/.test(location.hash||"");</script>
 <script src="assets/vendor/three.min.js"></script>
-<script src="assets/app-v12.js?v=12.10.1"></script>
+<script src="assets/app-v12.js?v=12.11.0"></script>
+<script src="assets/workspace-v12.js?v=12.11.0"></script>
 <script src="assets/sphere.js?v=12.10.1"></script>
 <script>
 /* Setup opener that works even if an older cached script is running */
